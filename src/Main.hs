@@ -40,7 +40,7 @@ backspace z =
       case view linesAbove z of
         [] -> z
         (line : lines) -> set charsLeft line (set linesAbove lines z)
-    _ -> over charsLeft tail z
+    (_:xs) -> set charsLeft xs z
 
 delete :: Zipper -> Zipper
 delete z =
@@ -49,7 +49,7 @@ delete z =
       case view linesBelow z of
         [] -> z
         (line : lines) -> set charsRight line (set linesBelow lines z)
-    _ -> over charsRight tail z
+    (_:xs) -> set charsRight xs z
 
 newline :: Zipper -> Zipper
 newline z =
@@ -58,6 +58,69 @@ newline z =
     z' = over linesAbove ((:) new) z
   in
     set charsLeft "" z'
+
+goUp :: Zipper -> Zipper
+goUp z =
+  case view linesAbove z of
+    [] -> z
+    (c:cs) ->
+      let
+        leftChars = view charsLeft z
+        rightChars = view charsRight z
+        belowLines = view linesBelow z
+        n = length leftChars
+        c' = reverse c
+        leftChars' = reverse $ take n c'
+        rightChars' = drop n c'
+        line = reverse leftChars ++ rightChars
+      in
+        Zipper cs (line : belowLines) leftChars' rightChars'
+
+goDown :: Zipper -> Zipper
+goDown z =
+  case view linesBelow z of
+    [] -> z
+    (c:cs) ->
+      let
+        leftChars = view charsLeft z
+        rightChars = view charsRight z
+        aboveLines = view linesAbove z
+        n = length leftChars
+        leftChars' = reverse $ take n c
+        rightChars' = drop n c
+        line = reverse rightChars ++ leftChars
+      in
+        Zipper (line : aboveLines) cs leftChars' rightChars'
+
+goLeft :: Zipper -> Zipper
+goLeft z =
+  case view charsLeft z of
+    "" ->
+      case view linesAbove z of
+        [] -> z
+        (line : lines) ->
+          let
+            rightChars = view charsRight z
+            belowLines = view linesBelow z
+          in
+            Zipper lines (rightChars : belowLines) line []
+    (c:cs) ->
+       set charsLeft cs $ over charsRight ((:) c) z
+
+goRight :: Zipper -> Zipper
+goRight z =
+  case view charsRight z of
+    "" ->
+      case view linesBelow z of
+        [] -> z
+        (line : lines) ->
+          let
+            leftChars = view charsLeft z
+            aboveLines = view linesAbove z
+          in
+            Zipper (leftChars : aboveLines) lines [] line
+    (c:cs) ->
+       set charsRight cs $ over charsLeft ((:) c) z
 
 shiftCursorRight :: Int -> Cursor -> Cursor
 shiftCursorRight _ NoCursor = NoCursor
@@ -117,6 +180,14 @@ loop vty state = do
     return ()
   handleEvent (EvKey (KChar x) []) =
     loop vty $ over zipper (insert x) $ state
+  handleEvent (EvKey KUp []) =
+    loop vty $ over zipper goUp state
+  handleEvent (EvKey KDown []) =
+    loop vty $ over zipper goDown state
+  handleEvent (EvKey KLeft []) =
+    loop vty $ over zipper goLeft state
+  handleEvent (EvKey KRight []) =
+    loop vty $ over zipper goRight state
   handleEvent (EvKey KBS []) =
     loop vty $ over zipper backspace state
   handleEvent (EvKey KDel []) =
