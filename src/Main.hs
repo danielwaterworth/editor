@@ -21,6 +21,12 @@ zipperLines z =
   [reverse (view charsLeft z) ++ view charsRight z] ++
   view linesBelow z
 
+position :: Zipper -> Cursor
+position z = 
+  Cursor
+    (length $ view charsLeft z)
+    (length $ view linesAbove z)
+
 insert :: Char -> Zipper -> Zipper
 insert c =
   over charsLeft $ (:) c
@@ -51,6 +57,10 @@ newline z =
   in
     set charsLeft "" z'
 
+shiftCursorRight :: Int -> Cursor -> Cursor
+shiftCursorRight _ NoCursor = NoCursor
+shiftCursorRight n (Cursor l t) = Cursor (l + n) t
+
 data State =
   State {
     _zipper :: Zipper
@@ -64,7 +74,12 @@ loop vty state = do
   handleEvent e
  where
   picture =
-    picForImage $ foldr1 (<->) $ map (string defAttr . ((:) ' ')) $ zipperLines $ view zipper state
+    let
+      z = view zipper state 
+      lines = zipperLines z 
+      image = foldr1 (<->) $ map (string defAttr . ((:) ' ')) lines 
+    in
+      (picForImage image) { picCursor = shiftCursorRight 1 $ position z }
 
   render vty state =
     update vty picture
