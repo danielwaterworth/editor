@@ -158,95 +158,83 @@ data State =
   }
 makeLenses ''State
 
-loop vty bounds state = do
-  render vty state
-
-  e <- nextEvent vty
-  handleEvent e
+runMainLoop vty bounds state = do
+  loop bounds state
  where
-  showN m n =
-    let
-      s = show n
-    in
-      (take (m - length s) $ repeat ' ') ++ s
+  loop bounds state = do
+    render vty state
 
-  typeToStyle KeywordTok = defAttr `withForeColor` yellow `withStyle` bold
-  typeToStyle DataTypeTok = defAttr `withForeColor` cyan `withStyle` bold
-  typeToStyle CommentTok = defAttr `withForeColor` red
-  typeToStyle OperatorTok = defAttr `withForeColor` yellow `withStyle` bold
-  typeToStyle StringTok = defAttr `withForeColor` magenta
-  typeToStyle _ = defAttr
+    e <- nextEvent vty
+    handleEvent e
+   where
+    showN m n =
+      let
+        s = show n
+      in
+        (take (m - length s) $ repeat ' ') ++ s
 
-  renderToken (t, s) =
-    string (typeToStyle t) s
+    picture =
+      let
+        z = view zipper state
+        lines = zipperLines z
+        numLines = length lines
 
-  renderLine line =
-    string defAttr " " <|> (horizCat $ map renderToken line)
+        lineNumWidth = length (show numLines)
+        lineNumStyle = defAttr `withStyle` bold `withForeColor` yellow
+        lineNumbers = foldr1 (<->) $ map (string lineNumStyle . showN lineNumWidth) [1..numLines]
 
-  picture =
-    let
-      z = view zipper state 
-      lines = zipperLines z
-      numLines = length lines
+        (x, y) = position z
+        text = vertCat $ map (\x -> string defAttr " " <|> string defAttr x) lines
+        image = lineNumbers <|> text
 
-      lineNumWidth = length (show numLines)
-      lineNumStyle = defAttr `withStyle` bold `withForeColor` yellow
-      lineNumbers = foldr1 (<->) $ map (string lineNumStyle . showN lineNumWidth) [1..numLines]
+        height = snd bounds
+        trimAmount = max 0 (y - (height `div` 2))
 
-      --highlighted = highlightAs "haskell" $ intercalate "\n" lines
+        image' = translateY (-trimAmount) image
 
-      (x, y) = position z
-      text = vertCat $ map (\x -> string defAttr " " <|> string defAttr x) lines
-      image = lineNumbers <|> text
+        cursor = Cursor (x + lineNumWidth + 1) (y - trimAmount)
+      in
+        (picForImage image') { picCursor = cursor }
 
-      height = snd bounds
-      trimAmount = max 0 (y - (height `div` 2))
+    render vty state =
+      update vty picture
 
-      image' = translateY (-trimAmount) image
-
-      cursor = Cursor (x + lineNumWidth + 1) (y - trimAmount)
-    in
-      (picForImage image') { picCursor = cursor }
-
-  render vty state =
-    update vty picture
-
-  handleEvent (EvKey (KChar 'q') [MCtrl]) =
-    return ()
-  handleEvent (EvKey (KChar 's') [MCtrl]) = do
-    writeFile (view filename state) $ intercalate "\n" $ zipperLines $ view zipper state
-    loop vty bounds state
-  handleEvent (EvKey (KChar 'd') [MCtrl]) =
-    loop vty bounds $ over zipper deleteLine state
-  handleEvent (EvKey (KChar '\t') []) =
-    loop vty bounds $ over zipper indent state
-  handleEvent (EvKey KBackTab []) =
-    loop vty bounds $ over zipper unindent state
-  handleEvent (EvKey (KChar 'c') [MCtrl]) =
-    loop vty bounds $ over zipper commentOut state
-  handleEvent (EvKey (KChar 'g') [MCtrl]) =
-    loop vty bounds $ over zipper uncommentOut state
-  handleEvent (EvKey (KChar x) []) =
-    loop vty bounds $ over zipper (insert x) state
-  handleEvent (EvKey KUp []) =
-    loop vty bounds $ over zipper goUp state
-  handleEvent (EvKey KDown []) =
-    loop vty bounds $ over zipper goDown state
-  handleEvent (EvKey KLeft []) =
-    loop vty bounds $ over zipper goLeft state
-  handleEvent (EvKey KRight []) =
-    loop vty bounds $ over zipper goRight state
-  handleEvent (EvKey KBS []) =
-    loop vty bounds $ over zipper backspace state
-  handleEvent (EvKey KDel []) =
-    loop vty bounds $ over zipper delete state
-  handleEvent (EvKey KEnter []) =
-    loop vty bounds $ over zipper newline state
-  handleEvent (EvResize width height) =
-    loop vty (width, height) state
-  handleEvent e = do
-    print ("unknown event " ++ show e)
-    loop vty bounds state
+    handleEvent (EvKey (KChar 'q') [MCtrl]) =
+      return ()
+    handleEvent (EvKey (KChar 's') [MCtrl]) = do
+      writeFile (view filename state) $ intercalate "\n" $ zipperLines $ view zipper state
+      loop bounds state
+    handleEvent (EvKey (KChar 'd') [MCtrl]) =
+      loop bounds $ over zipper deleteLine state
+    handleEvent (EvKey (KChar '\t') []) =
+      loop bounds $ over zipper indent state
+    handleEvent (EvKey KBackTab []) =
+      loop bounds $ over zipper unindent state
+    handleEvent (EvKey (KChar 'c') [MCtrl]) =
+      loop bounds $ over zipper commentOut state
+    handleEvent (EvKey (KChar 'g') [MCtrl]) =
+      loop bounds $ over zipper uncommentOut state
+    handleEvent (EvKey (KChar x) []) =
+      loop bounds $ over zipper (insert x) state
+    handleEvent (EvKey KUp []) =
+      loop bounds $ over zipper goUp state
+    handleEvent (EvKey KDown []) =
+      loop bounds $ over zipper goDown state
+    handleEvent (EvKey KLeft []) =
+      loop bounds $ over zipper goLeft state
+    handleEvent (EvKey KRight []) =
+      loop bounds $ over zipper goRight state
+    handleEvent (EvKey KBS []) =
+      loop bounds $ over zipper backspace state
+    handleEvent (EvKey KDel []) =
+      loop bounds $ over zipper delete state
+    handleEvent (EvKey KEnter []) =
+      loop bounds $ over zipper newline state
+    handleEvent (EvResize width height) =
+      loop (width, height) state
+    handleEvent e = do
+      print ("unknown event " ++ show e)
+      loop bounds state
 
 loadState [filename] = do
   l <- lines <$> readFile filename
@@ -263,5 +251,5 @@ main = do
   bounds <- displayBounds $ outputIface vty
 
   finally
-    (loop vty bounds state)
+    (runMainLoop vty bounds state)
     (shutdown vty)
