@@ -29,6 +29,14 @@ delete z =
     "" -> undefined
     _ -> over charsLeft tail z
 
+newline :: Zipper -> Zipper
+newline z =
+  let
+    new = reverse $ view charsLeft z
+    z' = over linesAbove ((:) new) z
+  in
+    set charsLeft "" z'
+
 data State =
   State {
     _zipper :: Zipper
@@ -53,6 +61,8 @@ loop vty state = do
     loop vty $ over zipper (insert x) $ state
   handleEvent (EvKey KBS []) =
     loop vty $ over zipper delete state
+  handleEvent (EvKey KEnter []) =
+    loop vty $ over zipper newline state
   handleEvent e = do
     print ("unknown event " ++ show e)
     loop vty state
