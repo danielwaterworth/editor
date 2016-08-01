@@ -1,11 +1,12 @@
 {-# LANGUAGE TemplateHaskell #-}
 
 import Graphics.Vty
-import Data.List (foldr)
+import Data.List (foldr, intercalate)
 import Control.Lens
 import Control.Lens.TH
 import Control.Exception (finally)
 import System.Environment (getArgs)
+import Text.Highlighting.Kate (highlightAs, TokenType(..))
 
 data Zipper =
   Zipper {
@@ -80,6 +81,19 @@ loop vty state = do
     in
       (take (m - length s) $ repeat ' ') ++ s
 
+  typeToStyle KeywordTok = defAttr `withForeColor` yellow `withStyle` bold
+  typeToStyle DataTypeTok = defAttr `withForeColor` cyan `withStyle` bold
+  typeToStyle CommentTok = defAttr `withForeColor` red
+  typeToStyle OperatorTok = defAttr `withForeColor` yellow `withStyle` bold
+  typeToStyle StringTok = defAttr `withForeColor` magenta
+  typeToStyle _ = defAttr
+
+  renderToken (t, s) =
+    string (typeToStyle t) s
+
+  renderLine line =
+    string defAttr " " <|> (horizCat $ map renderToken line)
+
   picture =
     let
       z = view zipper state 
@@ -90,7 +104,9 @@ loop vty state = do
       lineNumStyle = defAttr `withStyle` bold `withForeColor` yellow
       lineNumbers = foldr1 (<->) $ map (string lineNumStyle . showN lineNumWidth) [1..numLines]
 
-      text = foldr1 (<->) $ map (string defAttr . ((:) ' ')) lines
+      highlighted = highlightAs "haskell" $ intercalate "\n" lines
+
+      text = vertCat $ map renderLine highlighted
     in
       (picForImage (lineNumbers <|> text)) { picCursor = shiftCursorRight (1 + lineNumWidth) $ position z }
 
