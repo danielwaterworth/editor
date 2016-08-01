@@ -197,6 +197,8 @@ loop vty bounds state = do
     loop vty bounds state
   handleEvent (EvKey (KChar 'd') [MCtrl]) =
     loop vty bounds $ over zipper deleteLine state
+  handleEvent (EvKey (KChar '\t') []) =
+    loop vty bounds $ over zipper (insert ' ' . insert ' ') state
   handleEvent (EvKey (KChar x) []) =
     loop vty bounds $ over zipper (insert x) state
   handleEvent (EvKey KUp []) =
