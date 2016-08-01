@@ -1,4 +1,4 @@
-{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TemplateHaskell, FlexibleContexts #-}
 
 import Graphics.Vty
 import Data.List (foldr, intercalate)
@@ -8,8 +8,10 @@ import Control.Exception (finally)
 import System.Environment (getArgs)
 import Text.Highlighting.Kate (highlightAs, TokenType(..))
 import Control.Concurrent (threadDelay)
-import Control.Monad.Trans.State (execStateT, StateT)
-import Control.Monad.IO.Class (liftIO)
+import Control.Monad.State (execStateT, StateT, MonadState)
+import Control.Monad.IO.Class (MonadIO, liftIO)
+import Control.Monad.Trans.Maybe (runMaybeT, MaybeT)
+import Control.Monad (MonadPlus, mzero)
 
 data Zipper =
   Zipper {
@@ -27,7 +29,7 @@ zipperLines z =
   view linesBelow z
 
 position :: Zipper -> (Int, Int)
-position z = 
+position z =
   (length $ view charsLeft z, length $ view linesAbove z)
 
 insert :: Char -> Zipper -> Zipper
@@ -161,14 +163,15 @@ data State =
 makeLenses ''State
 
 runMainLoop vty bounds state = do
-  flip execStateT (bounds, state) loop
+  runMaybeT $ flip execStateT (bounds, state) loop
  where
-  loop :: StateT ((Int, Int), State) IO ()
+  loop :: StateT ((Int, Int), State) (MaybeT IO) ()
   loop = do
-    render vty state
+    render
 
-    e <- liftIO $ nextEvent vty
-    handleEvent e
+    e <- nextKeyEvent
+    handleKeyEvent e
+    loop
    where
     showN m n =
       let
@@ -176,82 +179,74 @@ runMainLoop vty bounds state = do
       in
         (take (m - length s) $ repeat ' ') ++ s
 
-    picture =
-      let
-        z = view zipper state
-        lines = zipperLines z
-        numLines = length lines
+    render = do
+      z <- use (_2 . zipper)
+      let lines = zipperLines z
+      let numLines = length lines
 
-        lineNumWidth = length (show numLines)
-        lineNumStyle = defAttr `withStyle` bold `withForeColor` yellow
-        lineNumbers = foldr1 (<->) $ map (string lineNumStyle . showN lineNumWidth) [1..numLines]
+      let lineNumWidth = length (show numLines)
+      let lineNumStyle = defAttr `withStyle` bold `withForeColor` yellow
+      let lineNumbers = foldr1 (<->) $ map (string lineNumStyle . showN lineNumWidth) [1..numLines]
 
-        (x, y) = position z
-        text = vertCat $ map (\x -> string defAttr " " <|> string defAttr x) lines
-        image = lineNumbers <|> text
+      let (x, y) = position z
+      let text = vertCat $ map (\x -> string defAttr " " <|> string defAttr x) lines
+      let image = lineNumbers <|> text
 
-        height = snd bounds
-        trimAmount = max 0 (y - (height `div` 2))
+      let height = snd bounds
+      let trimAmount = max 0 (y - (height `div` 2))
 
-        image' = translateY (-trimAmount) image
+      let image' = translateY (-trimAmount) image
 
-        cursor = Cursor (x + lineNumWidth + 1) (y - trimAmount)
-      in
-        (picForImage image') { picCursor = cursor }
+      let cursor = Cursor (x + lineNumWidth + 1) (y - trimAmount)
+      let picture = (picForImage image') { picCursor = cursor }
 
-    render vty state =
       liftIO $ update vty picture
 
-    handleEvent (EvKey (KChar 'q') [MCtrl]) =
-      return ()
-    handleEvent (EvKey (KChar 's') [MCtrl]) = do
+    nextKeyEvent = do
+      e <- liftIO $ nextEvent vty
+      case e of
+        EvKey k m -> return (k, m)
+        EvResize width height -> do
+          _1 .= (width, height)
+          render
+          nextKeyEvent
+        _ -> do
+          liftIO $ print ("unknown event type " ++ show e)
+          nextKeyEvent
+
+    handleKeyEvent :: (MonadState ((Int, Int), State) m, MonadIO m, MonadPlus m) => (Key, [Modifier]) -> m ()
+    handleKeyEvent (KChar 'q', [MCtrl]) =
+      mzero
+    handleKeyEvent (KChar 's', [MCtrl]) =
       liftIO $ writeFile (view filename state) $ intercalate "\n" $ zipperLines $ view zipper state
-      loop
-    handleEvent (EvKey (KChar 'd') [MCtrl]) = do
+    handleKeyEvent (KChar 'd', [MCtrl]) =
       (_2 . zipper) %= deleteLine
-      loop
-    handleEvent (EvKey (KChar '\t') []) = do
+    handleKeyEvent (KChar '\t', []) =
       (_2 . zipper) %= indent
-      loop
-    handleEvent (EvKey KBackTab []) = do
+    handleKeyEvent (KBackTab, []) =
       (_2 . zipper) %= unindent
-      loop
-    handleEvent (EvKey (KChar 'c') [MCtrl]) = do
+    handleKeyEvent (KChar 'c', [MCtrl]) =
       (_2 . zipper) %= commentOut
-      loop
-    handleEvent (EvKey (KChar 'g') [MCtrl]) = do
+    handleKeyEvent (KChar 'g', [MCtrl]) =
       (_2 . zipper) %= uncommentOut
-      loop
-    handleEvent (EvKey (KChar x) []) = do
+    handleKeyEvent (KChar x, []) =
       (_2 . zipper) %= (insert x)
-      loop
-    handleEvent (EvKey KUp []) = do
+    handleKeyEvent (KUp, []) =
       (_2 . zipper) %= goUp
-      loop
-    handleEvent (EvKey KDown []) = do
+    handleKeyEvent (KDown, []) =
       (_2 . zipper) %= goDown
-      loop
-    handleEvent (EvKey KLeft []) = do
+    handleKeyEvent (KLeft, []) =
       (_2 . zipper) %= goLeft
-      loop
-    handleEvent (EvKey KRight []) = do
+    handleKeyEvent (KRight, []) =
       (_2 . zipper) %= goRight
-      loop
-    handleEvent (EvKey KBS []) = do
+    handleKeyEvent (KBS, []) =
       (_2 . zipper) %= backspace
-      loop
-    handleEvent (EvKey KDel []) = do
+    handleKeyEvent (KDel, []) =
       (_2 . zipper) %= delete
-      loop
-    handleEvent (EvKey KEnter []) = do
+    handleKeyEvent (KEnter, []) =
       (_2 . zipper) %= newline
-      loop
-    handleEvent (EvResize width height) = do
-      _1 .= (width, height)
-      loop
-    handleEvent e = do
+    handleKeyEvent e = do
       liftIO $ print ("unknown event " ++ show e)
-      loop
 
 loadState [filename] = do
   l <- lines <$> readFile filename
