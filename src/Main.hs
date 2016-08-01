@@ -132,7 +132,7 @@ data State =
   }
 makeLenses ''State
 
-loop vty state = do
+loop vty bounds state = do
   render vty state
 
   e <- nextEvent vty
@@ -170,8 +170,10 @@ loop vty state = do
       highlighted = highlightAs "haskell" $ intercalate "\n" lines
 
       text = vertCat $ map renderLine highlighted
+      image = lineNumbers <|> text
+      cursor = shiftCursorRight (1 + lineNumWidth) $ position z
     in
-      (picForImage (lineNumbers <|> text)) { picCursor = shiftCursorRight (1 + lineNumWidth) $ position z }
+      (picForImage image) { picCursor = cursor }
 
   render vty state =
     update vty picture
@@ -179,24 +181,26 @@ loop vty state = do
   handleEvent (EvKey (KChar 'q') [MCtrl]) =
     return ()
   handleEvent (EvKey (KChar x) []) =
-    loop vty $ over zipper (insert x) $ state
+    loop vty bounds $ over zipper (insert x) $ state
   handleEvent (EvKey KUp []) =
-    loop vty $ over zipper goUp state
+    loop vty bounds $ over zipper goUp state
   handleEvent (EvKey KDown []) =
-    loop vty $ over zipper goDown state
+    loop vty bounds $ over zipper goDown state
   handleEvent (EvKey KLeft []) =
-    loop vty $ over zipper goLeft state
+    loop vty bounds $ over zipper goLeft state
   handleEvent (EvKey KRight []) =
-    loop vty $ over zipper goRight state
+    loop vty bounds $ over zipper goRight state
   handleEvent (EvKey KBS []) =
-    loop vty $ over zipper backspace state
+    loop vty bounds $ over zipper backspace state
   handleEvent (EvKey KDel []) =
-    loop vty $ over zipper delete state
+    loop vty bounds $ over zipper delete state
   handleEvent (EvKey KEnter []) =
-    loop vty $ over zipper newline state
+    loop vty bounds $ over zipper newline state
+  handleEvent (EvResize width height) =
+    loop vty (width, height) state
   handleEvent e = do
     print ("unknown event " ++ show e)
-    loop vty state
+    loop vty bounds state
 
 loadState [] =
   return $ State $ Zipper [] [] [] []
@@ -212,7 +216,8 @@ main = do
   state <- loadState args
   cfg <- standardIOConfig
   vty <- mkVty cfg
-   
+  bounds <- displayBounds $ outputIface vty
+
   finally
-    (loop vty state)
+    (loop vty bounds state)
     (shutdown vty)
