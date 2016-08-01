@@ -23,8 +23,8 @@ insert :: Char -> Zipper -> Zipper
 insert c =
   over charsLeft $ (:) c
 
-delete :: Zipper -> Zipper
-delete z =
+backspace :: Zipper -> Zipper
+backspace z =
   case view charsLeft z of
     "" -> undefined
     _ -> over charsLeft tail z
@@ -60,7 +60,7 @@ loop vty state = do
   handleEvent (EvKey (KChar x) []) =
     loop vty $ over zipper (insert x) $ state
   handleEvent (EvKey KBS []) =
-    loop vty $ over zipper delete state
+    loop vty $ over zipper backspace state
   handleEvent (EvKey KEnter []) =
     loop vty $ over zipper newline state
   handleEvent e = do
