@@ -7,6 +7,7 @@ import Control.Lens.TH
 import Control.Exception (finally)
 import System.Environment (getArgs)
 import Text.Highlighting.Kate (highlightAs, TokenType(..))
+import Control.Concurrent (threadDelay)
 
 data Zipper =
   Zipper {
@@ -141,10 +142,14 @@ unindent z =
     _ -> z
 
 commentOut :: Zipper -> Zipper
-commentOut = id
+commentOut =
+  over charsLeft (flip (++) "--")
 
 uncommentOut :: Zipper -> Zipper
-uncommentOut = id
+uncommentOut z =
+  case reverse (view charsLeft z) of
+    ('-' : '-' : xs) -> set charsLeft (reverse xs) z
+    _ -> z
 
 data State =
   State {
@@ -217,9 +222,9 @@ loop vty bounds state = do
     loop vty bounds $ over zipper indent state
   handleEvent (EvKey KBackTab []) =
     loop vty bounds $ over zipper unindent state
-  handleEvent (EvKey (KChar 'm') [MCtrl]) =
+  handleEvent (EvKey (KChar 'c') [MCtrl]) =
     loop vty bounds $ over zipper commentOut state
-  handleEvent (EvKey (KChar 'M') [MCtrl]) =
+  handleEvent (EvKey (KChar 'g') [MCtrl]) =
     loop vty bounds $ over zipper uncommentOut state
   handleEvent (EvKey (KChar x) []) =
     loop vty bounds $ over zipper (insert x) state
