@@ -217,8 +217,10 @@ runMainLoop vty bounds state = do
     handleKeyEvent :: (MonadState ((Int, Int), State) m, MonadIO m, MonadPlus m) => (Key, [Modifier]) -> m ()
     handleKeyEvent (KChar 'q', [MCtrl]) =
       mzero
-    handleKeyEvent (KChar 's', [MCtrl]) =
-      liftIO $ writeFile (view filename state) $ intercalate "\n" $ zipperLines $ view zipper state
+    handleKeyEvent (KChar 's', [MCtrl]) = do
+      z <- use (_2 . zipper)
+      name <- use (_2 . filename)
+      liftIO $ writeFile name $ intercalate "\n" $ zipperLines z
     handleKeyEvent (KChar 'd', [MCtrl]) =
       (_2 . zipper) %= deleteLine
     handleKeyEvent (KChar '\t', []) =
