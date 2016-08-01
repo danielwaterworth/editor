@@ -4,6 +4,7 @@ import Graphics.Vty
 import Data.List (foldr)
 import Control.Lens
 import Control.Lens.TH
+import Control.Exception (finally)
 
 data Zipper =
   Zipper {
@@ -21,6 +22,12 @@ zipperLines z =
 insert :: Char -> Zipper -> Zipper
 insert c =
   over charsLeft $ (:) c
+
+delete :: Zipper -> Zipper
+delete z =
+  case view charsLeft z of
+    "" -> undefined
+    _ -> over charsLeft tail z
 
 data State =
   State {
@@ -41,14 +48,19 @@ loop vty state = do
     update vty picture
 
   handleEvent (EvKey (KChar 'q') [MCtrl]) =
-    shutdown vty
+    return ()
   handleEvent (EvKey (KChar x) []) =
     loop vty $ over zipper (insert x) $ state
-  handleEvent e =
+  handleEvent (EvKey KBS []) =
+    loop vty $ over zipper delete state
+  handleEvent e = do
+    print ("unknown event " ++ show e)
     loop vty state
 
 main = do
   cfg <- standardIOConfig
   vty <- mkVty cfg
    
-  loop vty $ State $ Zipper ["first line"] ["last line"] [] []
+  finally
+    (loop vty $ State $ Zipper ["first line"] ["last line"] [] [])
+    (shutdown vty)
