@@ -1,10 +1,32 @@
-import Graphics.Vty
+{-# LANGUAGE TemplateHaskell #-}
 
-import qualified Data.Text as T
-import qualified Data.Text.Zipper as Z
+import Graphics.Vty
+import Data.List (foldr)
+import Control.Lens
+import Control.Lens.TH
+
+data Zipper =
+  Zipper {
+    _linesAbove :: [String],
+    _linesBelow :: [String],
+    _charsLeft  :: [Char],
+    _charsRight :: [Char]
+  }
+makeLenses ''Zipper
+
+zipperLines :: Zipper -> [String]
+zipperLines z =
+  reverse (view linesAbove z) ++ [reverse (view charsLeft z) ++ view charsRight z] ++ view linesBelow z
+
+insert :: Char -> Zipper -> Zipper
+insert c =
+  over charsLeft $ (:) c
 
 data State =
-  State (Z.TextZipper T.Text)
+  State {
+    _zipper :: Zipper
+  }
+makeLenses ''State
 
 loop vty state = do
   render vty state
@@ -13,18 +35,15 @@ loop vty state = do
   handleEvent e
  where
   picture =
-    let
-      line0 = string (defAttr ` withForeColor ` green) "first line"
-      line1 = string (defAttr ` withBackColor ` blue) "second line"
-      img = line0 <-> line1
-    in
-      picForImage img
+    picForImage $ foldr1 (<->) $ map (string defAttr . ((:) ' ')) $ zipperLines $ view zipper state
 
   render vty state =
     update vty picture
 
   handleEvent (EvKey (KChar 'q') [MCtrl]) =
     shutdown vty
+  handleEvent (EvKey (KChar x) []) =
+    loop vty $ over zipper (insert x) $ state
   handleEvent e =
     loop vty state
 
@@ -32,4 +51,4 @@ main = do
   cfg <- standardIOConfig
   vty <- mkVty cfg
    
-  loop vty $ State $ Z.textZipper [] Nothing
+  loop vty $ State $ Zipper ["first line"] ["last line"] [] []
