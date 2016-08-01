@@ -5,6 +5,7 @@ import Data.List (foldr)
 import Control.Lens
 import Control.Lens.TH
 import Control.Exception (finally)
+import System.Environment (getArgs)
 
 data Zipper =
   Zipper {
@@ -110,10 +111,21 @@ loop vty state = do
     print ("unknown event " ++ show e)
     loop vty state
 
+loadState [] =
+  return $ State $ Zipper [] [] [] []
+loadState [filename] = do
+  l <- lines <$> readFile filename
+  return $
+    case l of
+      [] -> State $ Zipper [] [] [] []
+      (x:xs) -> State $ Zipper [] xs [] x
+
 main = do
+  args <- getArgs
+  state <- loadState args
   cfg <- standardIOConfig
   vty <- mkVty cfg
    
   finally
-    (loop vty $ State $ Zipper [reverse "first line"] ["last line"] [] [])
+    (loop vty state)
     (shutdown vty)
