@@ -135,7 +135,10 @@ indent =
   over charsLeft (flip (++) "  ")
 
 unindent :: Zipper -> Zipper
-unindent = id
+unindent z =
+  case reverse (view charsLeft z) of
+    (' ' : ' ' : xs) -> set charsLeft (reverse xs) z
+    _ -> z
 
 commentOut :: Zipper -> Zipper
 commentOut = id
@@ -212,7 +215,7 @@ loop vty bounds state = do
     loop vty bounds $ over zipper deleteLine state
   handleEvent (EvKey (KChar '\t') []) =
     loop vty bounds $ over zipper indent state
-  handleEvent (EvKey (KChar '\t') [MShift]) =
+  handleEvent (EvKey KBackTab []) =
     loop vty bounds $ over zipper unindent state
   handleEvent (EvKey (KChar 'm') [MCtrl]) =
     loop vty bounds $ over zipper commentOut state
