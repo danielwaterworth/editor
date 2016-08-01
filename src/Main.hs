@@ -8,6 +8,8 @@ import Control.Exception (finally)
 import System.Environment (getArgs)
 import Text.Highlighting.Kate (highlightAs, TokenType(..))
 import Control.Concurrent (threadDelay)
+import Control.Monad.Trans.State (execStateT, StateT)
+import Control.Monad.IO.Class (liftIO)
 
 data Zipper =
   Zipper {
@@ -159,12 +161,13 @@ data State =
 makeLenses ''State
 
 runMainLoop vty bounds state = do
-  loop bounds state
+  flip execStateT (bounds, state) loop
  where
-  loop bounds state = do
+  loop :: StateT ((Int, Int), State) IO ()
+  loop = do
     render vty state
 
-    e <- nextEvent vty
+    e <- liftIO $ nextEvent vty
     handleEvent e
    where
     showN m n =
@@ -197,44 +200,58 @@ runMainLoop vty bounds state = do
         (picForImage image') { picCursor = cursor }
 
     render vty state =
-      update vty picture
+      liftIO $ update vty picture
 
     handleEvent (EvKey (KChar 'q') [MCtrl]) =
       return ()
     handleEvent (EvKey (KChar 's') [MCtrl]) = do
-      writeFile (view filename state) $ intercalate "\n" $ zipperLines $ view zipper state
-      loop bounds state
-    handleEvent (EvKey (KChar 'd') [MCtrl]) =
-      loop bounds $ over zipper deleteLine state
-    handleEvent (EvKey (KChar '\t') []) =
-      loop bounds $ over zipper indent state
-    handleEvent (EvKey KBackTab []) =
-      loop bounds $ over zipper unindent state
-    handleEvent (EvKey (KChar 'c') [MCtrl]) =
-      loop bounds $ over zipper commentOut state
-    handleEvent (EvKey (KChar 'g') [MCtrl]) =
-      loop bounds $ over zipper uncommentOut state
-    handleEvent (EvKey (KChar x) []) =
-      loop bounds $ over zipper (insert x) state
-    handleEvent (EvKey KUp []) =
-      loop bounds $ over zipper goUp state
-    handleEvent (EvKey KDown []) =
-      loop bounds $ over zipper goDown state
-    handleEvent (EvKey KLeft []) =
-      loop bounds $ over zipper goLeft state
-    handleEvent (EvKey KRight []) =
-      loop bounds $ over zipper goRight state
-    handleEvent (EvKey KBS []) =
-      loop bounds $ over zipper backspace state
-    handleEvent (EvKey KDel []) =
-      loop bounds $ over zipper delete state
-    handleEvent (EvKey KEnter []) =
-      loop bounds $ over zipper newline state
-    handleEvent (EvResize width height) =
-      loop (width, height) state
+      liftIO $ writeFile (view filename state) $ intercalate "\n" $ zipperLines $ view zipper state
+      loop
+    handleEvent (EvKey (KChar 'd') [MCtrl]) = do
+      (_2 . zipper) %= deleteLine
+      loop
+    handleEvent (EvKey (KChar '\t') []) = do
+      (_2 . zipper) %= indent
+      loop
+    handleEvent (EvKey KBackTab []) = do
+      (_2 . zipper) %= unindent
+      loop
+    handleEvent (EvKey (KChar 'c') [MCtrl]) = do
+      (_2 . zipper) %= commentOut
+      loop
+    handleEvent (EvKey (KChar 'g') [MCtrl]) = do
+      (_2 . zipper) %= uncommentOut
+      loop
+    handleEvent (EvKey (KChar x) []) = do
+      (_2 . zipper) %= (insert x)
+      loop
+    handleEvent (EvKey KUp []) = do
+      (_2 . zipper) %= goUp
+      loop
+    handleEvent (EvKey KDown []) = do
+      (_2 . zipper) %= goDown
+      loop
+    handleEvent (EvKey KLeft []) = do
+      (_2 . zipper) %= goLeft
+      loop
+    handleEvent (EvKey KRight []) = do
+      (_2 . zipper) %= goRight
+      loop
+    handleEvent (EvKey KBS []) = do
+      (_2 . zipper) %= backspace
+      loop
+    handleEvent (EvKey KDel []) = do
+      (_2 . zipper) %= delete
+      loop
+    handleEvent (EvKey KEnter []) = do
+      (_2 . zipper) %= newline
+      loop
+    handleEvent (EvResize width height) = do
+      _1 .= (width, height)
+      loop
     handleEvent e = do
-      print ("unknown event " ++ show e)
-      loop bounds state
+      liftIO $ print ("unknown event " ++ show e)
+      loop
 
 loadState [filename] = do
   l <- lines <$> readFile filename
