@@ -1,6 +1,7 @@
 {-# LANGUAGE TemplateHaskell, FlexibleContexts #-}
 
 import Graphics.Vty
+import Data.Char (isDigit)
 import Data.List (foldr, intercalate)
 import Control.Lens
 import Control.Lens.TH
@@ -155,6 +156,20 @@ uncommentOut z =
     ('-' : '-' : xs) -> set charsLeft (reverse xs) z
     _ -> z
 
+gotoRelative :: Int -> Zipper -> Zipper
+gotoRelative 0 z = z
+gotoRelative n z | n > 0 =
+  gotoRelative (n - 1) (goDown z)
+gotoRelative n z | n < 0 =
+  gotoRelative (n + 1) (goUp z)
+
+goto :: Int -> Zipper -> Zipper
+goto n z =
+  let
+    m = length (view linesAbove z) + 1
+  in
+    gotoRelative (n - m) z
+
 data State =
   State {
     _filename :: FilePath,
@@ -179,6 +194,7 @@ runMainLoop vty bounds state = do
       in
         (take (m - length s) $ repeat ' ') ++ s
 
+    render :: (MonadState ((Int, Int), State) m, MonadIO m) => m ()
     render = do
       z <- use (_2 . zipper)
       let lines = zipperLines z
@@ -202,6 +218,7 @@ runMainLoop vty bounds state = do
 
       liftIO $ update vty picture
 
+    nextKeyEvent :: (MonadState ((Int, Int), State) m, MonadIO m) => m (Key, [Modifier])
     nextKeyEvent = do
       e <- liftIO $ nextEvent vty
       case e of
@@ -213,6 +230,13 @@ runMainLoop vty bounds state = do
         _ -> do
           liftIO $ print ("unknown event type " ++ show e)
           nextKeyEvent
+
+    handleGoto n = do
+      e <- nextKeyEvent
+      case e of
+        (KChar c, []) | isDigit c -> handleGoto (n * 10 + read [c])
+        (KEnter, []) -> (_2 . zipper) %= goto n
+        _ -> return ()
 
     handleKeyEvent :: (MonadState ((Int, Int), State) m, MonadIO m, MonadPlus m) => (Key, [Modifier]) -> m ()
     handleKeyEvent (KChar 'q', [MCtrl]) =
@@ -231,6 +255,8 @@ runMainLoop vty bounds state = do
       (_2 . zipper) %= commentOut
     handleKeyEvent (KChar 'g', [MCtrl]) =
       (_2 . zipper) %= uncommentOut
+    handleKeyEvent (KChar 'l', [MCtrl]) =
+      handleGoto 0
     handleKeyEvent (KChar x, []) =
       (_2 . zipper) %= (insert x)
     handleKeyEvent (KUp, []) =
