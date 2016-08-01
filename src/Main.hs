@@ -73,13 +73,24 @@ loop vty state = do
   e <- nextEvent vty
   handleEvent e
  where
+  showN m n =
+    let
+      s = show n
+    in
+      (take (m - length s) $ repeat ' ') ++ s
+
   picture =
     let
       z = view zipper state 
-      lines = zipperLines z 
-      image = foldr1 (<->) $ map (string defAttr . ((:) ' ')) lines 
+      lines = zipperLines z
+      numLines = length lines
+
+      lineNumWidth = length (show numLines)
+      lineNumbers = foldr1 (<->) $ map (string defAttr . showN lineNumWidth) [1..numLines]
+
+      text = foldr1 (<->) $ map (string defAttr . ((:) ' ')) lines
     in
-      (picForImage image) { picCursor = shiftCursorRight 1 $ position z }
+      (picForImage (lineNumbers <|> text)) { picCursor = shiftCursorRight (1 + lineNumWidth) $ position z }
 
   render vty state =
     update vty picture
