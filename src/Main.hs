@@ -23,11 +23,9 @@ zipperLines z =
   [reverse (view charsLeft z) ++ view charsRight z] ++
   view linesBelow z
 
-position :: Zipper -> Cursor
+position :: Zipper -> (Int, Int)
 position z = 
-  Cursor
-    (length $ view charsLeft z)
-    (length $ view linesAbove z)
+  (length $ view charsLeft z, length $ view linesAbove z)
 
 insert :: Char -> Zipper -> Zipper
 insert c =
@@ -122,10 +120,6 @@ goRight z =
     (c:cs) ->
        set charsRight cs $ over charsLeft ((:) c) z
 
-shiftCursorRight :: Int -> Cursor -> Cursor
-shiftCursorRight _ NoCursor = NoCursor
-shiftCursorRight n (Cursor l t) = Cursor (l + n) t
-
 data State =
   State {
     _zipper :: Zipper
@@ -169,11 +163,18 @@ loop vty bounds state = do
 
       highlighted = highlightAs "haskell" $ intercalate "\n" lines
 
+      (x, y) = position z
       text = vertCat $ map renderLine highlighted
       image = lineNumbers <|> text
-      cursor = shiftCursorRight (1 + lineNumWidth) $ position z
+
+      height = snd bounds
+      trimAmount = max 0 (y - (height `div` 2))
+
+      image' = translateY (-trimAmount) image
+
+      cursor = Cursor (x + lineNumWidth + 1) (y - trimAmount)
     in
-      (picForImage image) { picCursor = cursor }
+      (picForImage image') { picCursor = cursor }
 
   render vty state =
     update vty picture
