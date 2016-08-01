@@ -122,6 +122,7 @@ goRight z =
 
 data State =
   State {
+    _filename :: FilePath,
     _zipper :: Zipper
   }
 makeLenses ''State
@@ -181,8 +182,11 @@ loop vty bounds state = do
 
   handleEvent (EvKey (KChar 'q') [MCtrl]) =
     return ()
+  handleEvent (EvKey (KChar 's') [MCtrl]) = do
+    writeFile (view filename state) $ intercalate "\n" $ zipperLines $ view zipper state
+    loop vty bounds state
   handleEvent (EvKey (KChar x) []) =
-    loop vty bounds $ over zipper (insert x) $ state
+    loop vty bounds $ over zipper (insert x) state
   handleEvent (EvKey KUp []) =
     loop vty bounds $ over zipper goUp state
   handleEvent (EvKey KDown []) =
@@ -203,14 +207,12 @@ loop vty bounds state = do
     print ("unknown event " ++ show e)
     loop vty bounds state
 
-loadState [] =
-  return $ State $ Zipper [] [] [] []
 loadState [filename] = do
   l <- lines <$> readFile filename
-  return $
+  return $ State filename $
     case l of
-      [] -> State $ Zipper [] [] [] []
-      (x:xs) -> State $ Zipper [] xs [] x
+      [] -> Zipper [] [] [] []
+      (x:xs) -> Zipper [] xs [] x
 
 main = do
   args <- getArgs
