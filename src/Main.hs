@@ -29,6 +29,12 @@ backspace z =
     "" -> undefined
     _ -> over charsLeft tail z
 
+delete :: Zipper -> Zipper
+delete z =
+  case view charsRight z of
+    "" -> undefined
+    _ -> over charsRight tail z
+
 newline :: Zipper -> Zipper
 newline z =
   let
@@ -61,6 +67,8 @@ loop vty state = do
     loop vty $ over zipper (insert x) $ state
   handleEvent (EvKey KBS []) =
     loop vty $ over zipper backspace state
+  handleEvent (EvKey KDel []) =
+    loop vty $ over zipper delete state
   handleEvent (EvKey KEnter []) =
     loop vty $ over zipper newline state
   handleEvent e = do
