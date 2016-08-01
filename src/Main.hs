@@ -86,7 +86,8 @@ loop vty state = do
       numLines = length lines
 
       lineNumWidth = length (show numLines)
-      lineNumbers = foldr1 (<->) $ map (string defAttr . showN lineNumWidth) [1..numLines]
+      lineNumStyle = defAttr `withStyle` bold `withForeColor` yellow
+      lineNumbers = foldr1 (<->) $ map (string lineNumStyle . showN lineNumWidth) [1..numLines]
 
       text = foldr1 (<->) $ map (string defAttr . ((:) ' ')) lines
     in
