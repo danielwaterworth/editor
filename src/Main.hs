@@ -28,13 +28,19 @@ insert c =
 backspace :: Zipper -> Zipper
 backspace z =
   case view charsLeft z of
-    "" -> undefined
+    "" ->
+      case view linesAbove z of
+        [] -> z
+        (line : lines) -> set charsLeft line (set linesAbove lines z)
     _ -> over charsLeft tail z
 
 delete :: Zipper -> Zipper
 delete z =
   case view charsRight z of
-    "" -> undefined
+    "" ->
+      case view linesBelow z of
+        [] -> z
+        (line : lines) -> set charsRight line (set linesBelow lines z)
     _ -> over charsRight tail z
 
 newline :: Zipper -> Zipper
