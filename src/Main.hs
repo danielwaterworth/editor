@@ -120,6 +120,16 @@ goRight z =
     (c:cs) ->
        set charsRight cs $ over charsLeft ((:) c) z
 
+deleteLineAbove :: Zipper -> Zipper
+deleteLineAbove z =
+  case view linesAbove z of
+    [] -> z
+    (line : lines) -> set linesAbove lines z
+
+deleteLine :: Zipper -> Zipper
+deleteLine =
+  deleteLineAbove . goDown
+
 data State =
   State {
     _filename :: FilePath,
@@ -162,10 +172,10 @@ loop vty bounds state = do
       lineNumStyle = defAttr `withStyle` bold `withForeColor` yellow
       lineNumbers = foldr1 (<->) $ map (string lineNumStyle . showN lineNumWidth) [1..numLines]
 
-      highlighted = highlightAs "haskell" $ intercalate "\n" lines
+      --highlighted = highlightAs "haskell" $ intercalate "\n" lines
 
       (x, y) = position z
-      text = vertCat $ map renderLine highlighted
+      text = vertCat $ map (\x -> string defAttr " " <|> string defAttr x) lines
       image = lineNumbers <|> text
 
       height = snd bounds
@@ -185,6 +195,8 @@ loop vty bounds state = do
   handleEvent (EvKey (KChar 's') [MCtrl]) = do
     writeFile (view filename state) $ intercalate "\n" $ zipperLines $ view zipper state
     loop vty bounds state
+  handleEvent (EvKey (KChar 'd') [MCtrl]) =
+    loop vty bounds $ over zipper deleteLine state
   handleEvent (EvKey (KChar x) []) =
     loop vty bounds $ over zipper (insert x) state
   handleEvent (EvKey KUp []) =
