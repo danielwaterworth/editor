@@ -130,6 +130,19 @@ deleteLine :: Zipper -> Zipper
 deleteLine =
   deleteLineAbove . goDown
 
+indent :: Zipper -> Zipper
+indent =
+  over charsLeft (flip (++) "  ")
+
+unindent :: Zipper -> Zipper
+unindent = id
+
+commentOut :: Zipper -> Zipper
+commentOut = id
+
+uncommentOut :: Zipper -> Zipper
+uncommentOut = id
+
 data State =
   State {
     _filename :: FilePath,
@@ -198,7 +211,13 @@ loop vty bounds state = do
   handleEvent (EvKey (KChar 'd') [MCtrl]) =
     loop vty bounds $ over zipper deleteLine state
   handleEvent (EvKey (KChar '\t') []) =
-    loop vty bounds $ over zipper (insert ' ' . insert ' ') state
+    loop vty bounds $ over zipper indent state
+  handleEvent (EvKey (KChar '\t') [MShift]) =
+    loop vty bounds $ over zipper unindent state
+  handleEvent (EvKey (KChar 'm') [MCtrl]) =
+    loop vty bounds $ over zipper commentOut state
+  handleEvent (EvKey (KChar 'M') [MCtrl]) =
+    loop vty bounds $ over zipper uncommentOut state
   handleEvent (EvKey (KChar x) []) =
     loop vty bounds $ over zipper (insert x) state
   handleEvent (EvKey KUp []) =
