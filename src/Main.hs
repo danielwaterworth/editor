@@ -17,7 +17,9 @@ makeLenses ''Zipper
 
 zipperLines :: Zipper -> [String]
 zipperLines z =
-  reverse (view linesAbove z) ++ [reverse (view charsLeft z) ++ view charsRight z] ++ view linesBelow z
+  reverse (map reverse (view linesAbove z)) ++
+  [reverse (view charsLeft z) ++ view charsRight z] ++
+  view linesBelow z
 
 insert :: Char -> Zipper -> Zipper
 insert c =
@@ -38,7 +40,7 @@ delete z =
 newline :: Zipper -> Zipper
 newline z =
   let
-    new = reverse $ view charsLeft z
+    new = view charsLeft z
     z' = over linesAbove ((:) new) z
   in
     set charsLeft "" z'
@@ -80,5 +82,5 @@ main = do
   vty <- mkVty cfg
    
   finally
-    (loop vty $ State $ Zipper ["first line"] ["last line"] [] [])
+    (loop vty $ State $ Zipper [reverse "first line"] ["last line"] [] [])
     (shutdown vty)
