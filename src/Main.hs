@@ -2,7 +2,7 @@
 
 import Graphics.Vty
 import Data.Char (isDigit)
-import Data.List (foldr, intercalate)
+import Data.List (foldr, intercalate, isPrefixOf)
 import Control.Lens
 import Control.Lens.TH
 import Control.Exception (finally)
@@ -170,6 +170,23 @@ goto n z =
   in
     gotoRelative (n - m) z
 
+match :: String -> Zipper -> Bool
+match term z =
+  term `isPrefixOf` view charsRight z
+
+atEnd :: Zipper -> Bool
+atEnd z =
+  case (view charsRight z, view linesBelow z) of
+    ([], []) -> True
+    _ -> False
+
+search :: String -> Zipper -> Zipper
+search term z =
+  if atEnd z || match term z then
+    z
+  else
+    search term $ goRight z
+
 data State =
   State {
     _filename :: FilePath,
@@ -238,6 +255,13 @@ runMainLoop vty bounds state = do
         (KEnter, []) -> (_2 . zipper) %= goto n
         _ -> return ()
 
+    handleSearch term = do
+      e <- nextKeyEvent
+      case e of
+        (KChar c, []) -> handleSearch (c:term)
+        (KEnter, []) -> (_2 . zipper) %= search (reverse term)
+        _ -> return ()
+
     handleKeyEvent :: (MonadState ((Int, Int), State) m, MonadIO m, MonadPlus m) => (Key, [Modifier]) -> m ()
     handleKeyEvent (KChar 'q', [MCtrl]) =
       mzero
@@ -257,6 +281,8 @@ runMainLoop vty bounds state = do
       (_2 . zipper) %= uncommentOut
     handleKeyEvent (KChar 'l', [MCtrl]) =
       handleGoto 0
+    handleKeyEvent (KChar 'f', [MCtrl]) =
+      handleSearch []
     handleKeyEvent (KChar x, []) =
       (_2 . zipper) %= (insert x)
     handleKeyEvent (KUp, []) =
