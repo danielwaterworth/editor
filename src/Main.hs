@@ -174,18 +174,38 @@ match :: String -> Zipper -> Bool
 match term z =
   term `isPrefixOf` view charsRight z
 
-atEnd :: Zipper -> Bool
-atEnd z =
-  case (view charsRight z, view linesBelow z) of
-    ([], []) -> True
-    _ -> False
+atLineStart :: Zipper -> Bool
+atLineStart z =
+  null (view charsLeft z)
+
+atLineEnd :: Zipper -> Bool
+atLineEnd z =
+  null (view charsRight z)
+
+atFileEnd :: Zipper -> Bool
+atFileEnd z =
+  null (view charsRight z) && null (view linesBelow z)
 
 search :: String -> Zipper -> Zipper
 search term z =
-  if atEnd z || match term z then
+  if atFileEnd z || match term z then
     z
   else
     search term $ goRight z
+
+gotoLineEnd :: Zipper -> Zipper
+gotoLineEnd z =
+  if atLineEnd z then
+    z
+  else
+    gotoLineEnd $ goRight z
+
+gotoLineStart :: Zipper -> Zipper
+gotoLineStart z =
+  if atLineStart z then
+    z
+  else
+    gotoLineStart $ goLeft z
 
 data State =
   State {
@@ -283,6 +303,10 @@ runMainLoop vty bounds state = do
       handleGoto 0
     handleKeyEvent (KChar 'f', [MCtrl]) =
       handleSearch []
+    handleKeyEvent (KChar 'e', [MCtrl]) =
+      (_2 . zipper) %= gotoLineEnd
+    handleKeyEvent (KChar 'a', [MCtrl]) =
+      (_2 . zipper) %= gotoLineStart
     handleKeyEvent (KChar x, []) =
       (_2 . zipper) %= (insert x)
     handleKeyEvent (KUp, []) =
