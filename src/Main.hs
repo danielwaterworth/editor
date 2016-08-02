@@ -188,10 +188,13 @@ atFileEnd z =
 
 search :: String -> Zipper -> Zipper
 search term z =
-  if atFileEnd z || match term z then
-    z
-  else
-    search term $ goRight z
+  let
+    z' = goRight z
+  in
+    if atFileEnd z' || match term z' then
+      z'
+    else
+      search term z'
 
 gotoLineEnd :: Zipper -> Zipper
 gotoLineEnd z =
@@ -210,7 +213,8 @@ gotoLineStart z =
 data State =
   State {
     _filename :: FilePath,
-    _zipper :: Zipper
+    _zipper :: Zipper,
+    _lastSearch :: String
   }
 makeLenses ''State
 
@@ -295,7 +299,10 @@ runMainLoop vty bounds state = do
       case e of
         (KChar c, []) -> handleSearch (c:term)
         (KBS, []) -> handleSearch (drop 1 term)
-        (KEnter, []) -> (_2 . zipper) %= search (reverse term)
+        (KEnter, []) -> do
+          let term' = reverse term
+          (_2 . lastSearch) .= term'
+          (_2 . zipper) %= search term'
         _ -> return ()
 
     handleKeyEvent :: (MonadState ((Int, Int), State) m, MonadIO m, MonadPlus m) => (Key, [Modifier]) -> m ()
@@ -319,6 +326,9 @@ runMainLoop vty bounds state = do
       handleGoto 0
     handleKeyEvent (KChar 'f', [MCtrl]) =
       handleSearch []
+    handleKeyEvent (KChar 'n', [MCtrl]) = do
+      term <- use (_2 . lastSearch)
+      (_2 . zipper) %= search term
     handleKeyEvent (KChar 'e', [MCtrl]) =
       (_2 . zipper) %= gotoLineEnd
     handleKeyEvent (KChar 'a', [MCtrl]) =
@@ -344,10 +354,11 @@ runMainLoop vty bounds state = do
 
 loadState [filename] = do
   l <- lines <$> readFile filename
-  return $ State filename $
-    case l of
-      [] -> Zipper [] [] [] []
-      (x:xs) -> Zipper [] xs [] x
+  let zipper =
+        case l of
+          [] -> Zipper [] [] [] []
+          (x:xs) -> Zipper [] xs [] x
+  return $ State filename zipper ""
 
 main = do
   args <- getArgs
