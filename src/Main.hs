@@ -214,7 +214,8 @@ data State =
   State {
     _filename :: FilePath,
     _zipper :: Zipper,
-    _lastSearch :: String
+    _lastSearch :: String,
+    _dirty :: Bool
   }
 makeLenses ''State
 
@@ -305,22 +306,40 @@ runMainLoop vty bounds state = do
           (_2 . zipper) %= search term'
         _ -> return ()
 
+    setDirty :: (MonadState (a, State) m) => m ()
+    setDirty =
+      (_2 . dirty) .= True
+
     handleKeyEvent :: (MonadState ((Int, Int), State) m, MonadIO m, MonadPlus m) => (Key, [Modifier]) -> m ()
-    handleKeyEvent (KChar 'q', [MCtrl]) =
-      mzero
+    handleKeyEvent (KChar 'q', [MCtrl]) = do
+      d <- use (_2 . dirty)
+      if not d then
+        mzero
+       else do
+        renderWithStatus "NOT SAVED, '!' to exit"
+        e <- nextKeyEvent
+        case e of
+          (KChar '!', []) -> mzero
+          _ -> return ()
     handleKeyEvent (KChar 's', [MCtrl]) = do
+      (_2 . dirty) .= False
       z <- use (_2 . zipper)
       name <- use (_2 . filename)
       liftIO $ writeFile name $ intercalate "\n" $ zipperLines z
-    handleKeyEvent (KChar 'd', [MCtrl]) =
+    handleKeyEvent (KChar 'd', [MCtrl]) = do
+      setDirty
       (_2 . zipper) %= deleteLine
-    handleKeyEvent (KChar '\t', []) =
+    handleKeyEvent (KChar '\t', []) = do
+      setDirty
       (_2 . zipper) %= indent
-    handleKeyEvent (KBackTab, []) =
+    handleKeyEvent (KBackTab, []) = do
+      setDirty
       (_2 . zipper) %= unindent
-    handleKeyEvent (KChar 'c', [MCtrl]) =
+    handleKeyEvent (KChar 'c', [MCtrl]) = do
+      setDirty
       (_2 . zipper) %= commentOut
-    handleKeyEvent (KChar 'g', [MCtrl]) =
+    handleKeyEvent (KChar 'g', [MCtrl]) = do
+      setDirty
       (_2 . zipper) %= uncommentOut
     handleKeyEvent (KChar 'l', [MCtrl]) =
       handleGoto 0
@@ -333,7 +352,8 @@ runMainLoop vty bounds state = do
       (_2 . zipper) %= gotoLineEnd
     handleKeyEvent (KChar 'a', [MCtrl]) =
       (_2 . zipper) %= gotoLineStart
-    handleKeyEvent (KChar x, []) =
+    handleKeyEvent (KChar x, []) = do
+      setDirty
       (_2 . zipper) %= (insert x)
     handleKeyEvent (KUp, []) =
       (_2 . zipper) %= goUp
@@ -343,11 +363,14 @@ runMainLoop vty bounds state = do
       (_2 . zipper) %= goLeft
     handleKeyEvent (KRight, []) =
       (_2 . zipper) %= goRight
-    handleKeyEvent (KBS, []) =
+    handleKeyEvent (KBS, []) = do
+      setDirty
       (_2 . zipper) %= backspace
-    handleKeyEvent (KDel, []) =
+    handleKeyEvent (KDel, []) = do
+      setDirty
       (_2 . zipper) %= delete
-    handleKeyEvent (KEnter, []) =
+    handleKeyEvent (KEnter, []) = do
+      setDirty
       (_2 . zipper) %= newline
     handleKeyEvent e = do
       liftIO $ print ("unknown event " ++ show e)
@@ -358,7 +381,7 @@ loadState [filename] = do
         case l of
           [] -> Zipper [] [] [] []
           (x:xs) -> Zipper [] xs [] x
-  return $ State filename zipper ""
+  return $ State filename zipper "" False
 
 main = do
   args <- getArgs
