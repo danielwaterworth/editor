@@ -284,6 +284,7 @@ runMainLoop vty bounds state = do
       e <- nextKeyEvent
       case e of
         (KChar c, []) | isDigit c -> handleGoto (n * 10 + read [c])
+        (KBS, []) -> handleGoto (n `div` 10)
         (KEnter, []) -> (_2 . zipper) %= goto n
         _ -> return ()
 
@@ -293,6 +294,7 @@ runMainLoop vty bounds state = do
       e <- nextKeyEvent
       case e of
         (KChar c, []) -> handleSearch (c:term)
+        (KBS, []) -> handleSearch (drop 1 term)
         (KEnter, []) -> (_2 . zipper) %= search (reverse term)
         _ -> return ()
 
