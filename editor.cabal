@@ -19,7 +19,12 @@ executable editor
   main-is:             Main.hs
   -- other-modules:       
   -- other-extensions:    
-  build-depends:       base >=4.8 && <4.9, vty, highlighting-kate, lens, mtl, transformers
+  build-depends:       base >=4.8 && <4.9,
+                       haskell-src-exts,
+                       vty,
+                       microlens-platform,
+                       transformers,
+                       mtl
   ghc-options:         -threaded
   hs-source-dirs:      src
   default-language:    Haskell2010

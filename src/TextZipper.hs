@@ -1,9 +1,9 @@
 {-# LANGUAGE TemplateHaskell #-}
-module Zipper where
+module TextZipper where
 
 import Data.List (isPrefixOf)
 
-import Control.Lens
+import Lens.Micro.Platform
 
 data Zipper =
   Zipper {
@@ -200,4 +200,3 @@ gotoLineStart z =
     z
   else
     gotoLineStart $ goLeft z
-
