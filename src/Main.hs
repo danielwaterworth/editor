@@ -231,8 +231,8 @@ runMainLoop vty bounds state = do
       in
         (take (m - length s) $ repeat ' ') ++ s
 
-    render :: (MonadState ((Int, Int), State) m, MonadIO m) => m ()
-    render = do
+    generatePicture :: (MonadState ((Int, Int), State) m) => m Picture
+    generatePicture = do
       z <- use (_2 . zipper)
       let lines = zipperLines z
       let numLines = length lines
@@ -251,9 +251,19 @@ runMainLoop vty bounds state = do
       let image' = translateY (-trimAmount) image
 
       let cursor = Cursor (x + lineNumWidth + 1) (y - trimAmount)
-      let picture = (picForImage image') { picCursor = cursor }
+      return (picForImage image') { picCursor = cursor }
 
+    render :: (MonadState ((Int, Int), State) m, MonadIO m) => m ()
+    render = do
+      picture <- generatePicture
       liftIO $ update vty picture
+
+    renderWithStatus status = do
+      (width, height) <- use _1
+      picture <- generatePicture
+      let statusBar = translateY (height - 1) $ string defAttr (status ++ (take width $ repeat ' '))
+      let cursor = Cursor (length status) (height - 1)
+      liftIO $ update vty (picture `addToTop` statusBar) { picCursor = cursor }
 
     nextKeyEvent :: (MonadState ((Int, Int), State) m, MonadIO m) => m (Key, [Modifier])
     nextKeyEvent = do
@@ -269,6 +279,8 @@ runMainLoop vty bounds state = do
           nextKeyEvent
 
     handleGoto n = do
+      renderWithStatus ("goto: " ++ if n == 0 then "" else show n)
+
       e <- nextKeyEvent
       case e of
         (KChar c, []) | isDigit c -> handleGoto (n * 10 + read [c])
@@ -276,6 +288,8 @@ runMainLoop vty bounds state = do
         _ -> return ()
 
     handleSearch term = do
+      renderWithStatus ("search: " ++ reverse term)
+
       e <- nextKeyEvent
       case e of
         (KChar c, []) -> handleSearch (c:term)
