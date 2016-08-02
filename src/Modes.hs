@@ -21,7 +21,8 @@ data ModuleState =
   ModuleState {
     _moduleStateDirty :: Bool,
     _moduleStateFilename :: [Char],
-    _moduleStateAstModule :: Module SrcSpanInfo
+    _moduleStateAstModule :: Module SrcSpanInfo,
+    _moduleStateComments :: [Comment]
   }
 makeFields ''ModuleState
 
@@ -34,7 +35,7 @@ data TextState =
   }
 makeFields ''TextState
 
-textMode :: Vty -> (Int, Int) -> TextState -> MaybeT IO a
+textMode :: (MonadIO m, MonadPlus m) => Vty -> (Int, Int) -> TextState -> m a
 textMode vty bounds state =
   evalStateT loop (bounds, state)
  where
@@ -42,8 +43,12 @@ textMode vty bounds state =
   loop = do
     picture <- generatePicture
     liftIO $ update vty picture
-    e <- nextKeyEvent
-    handleKeyEvent e
+
+    handleNextKey
+
+  handleNextKey :: (MonadState ((Int, Int), TextState) m, MonadIO m, MonadPlus m) => m a
+  handleNextKey =
+    nextKeyEvent >>= handleKeyEvent
 
   generatePicture :: (MonadState ((Int, Int), TextState) m) => m Picture
   generatePicture = do
@@ -98,6 +103,21 @@ textMode vty bounds state =
         (_2 . lastSearch) .= term'
         (_2 . zipper) %= search term'
       _ -> return ()
+
+  switchToHaskellMode :: (MonadState ((Int, Int), TextState) m, MonadIO m, MonadPlus m) => m a
+  switchToHaskellMode = do
+    bounds <- use _1
+    f <- use (_2 . filename)
+    d <- use (_2 . dirty)
+    z <- use (_2 . zipper)
+    let contents = intercalate "\n" $ zipperLines z
+    case parseFileContentsWithComments defaultParseMode contents of
+      ParseOk (mod, comments) -> do
+        haskellMode vty bounds $ ModuleState d f mod comments
+      ParseFailed loc message -> do
+        pic <- generateWithStatus (show (srcLine loc) ++ ":" ++ show (srcColumn loc) ++ ":" ++ message)
+        liftIO $ update vty pic
+        handleNextKey
 
   setDirty :: (MonadState (a, TextState) m) => m ()
   setDirty =
@@ -157,6 +177,8 @@ textMode vty bounds state =
   handleKeyEvent (KChar 'a', [MCtrl]) = do
     (_2 . zipper) %= gotoLineStart
     loop
+  handleKeyEvent (KChar 'h', [MMeta]) =
+    switchToHaskellMode
   handleKeyEvent (KChar x, []) = do
     setDirty
     (_2 . zipper) %= (insert x)
@@ -189,12 +211,50 @@ textMode vty bounds state =
     liftIO $ print ("unknown event " ++ show e)
     loop
 
-haskellMode :: Vty -> (Int, Int) -> ModuleState -> MaybeT IO a
+haskellMode :: (MonadIO m, MonadPlus m) => Vty -> (Int, Int) -> ModuleState -> m a
 haskellMode vty bounds state =
   evalStateT loop (bounds, state)
  where
   loop :: (MonadState ((Int, Int), ModuleState) m, MonadIO m, MonadPlus m) => m a
-  loop = undefined
+  loop = do
+    pic <- generatePicture
+    liftIO $ update vty pic
+
+    handleNextKeyEvent
+
+  handleNextKeyEvent :: (MonadState ((Int, Int), ModuleState) m, MonadIO m, MonadPlus m) => m a
+  handleNextKeyEvent =
+    nextKeyEvent >>= handleKeyEvent
+
+  nextKeyEvent :: (MonadState ((Int, Int), ModuleState) m, MonadIO m) => m (Key, [Modifier])
+  nextKeyEvent = do
+    e <- liftIO $ nextEvent vty
+    case e of
+      EvKey k m -> return (k, m)
+      EvResize width height -> do
+        _1 .= (width, height)
+        picture <- generatePicture
+        liftIO $ update vty picture
+        nextKeyEvent
+      _ -> do
+        liftIO $ print ("unknown event type " ++ show e)
+        nextKeyEvent
+
+  generatePicture :: (MonadState ((Int, Int), ModuleState) m) => m Picture
+  generatePicture = do
+    height <- use (_1 . _2)
+    mod <- use (_2 . astModule)
+    comments <- use (_2 . comments)
+    let src = exactPrint mod comments
+
+    return $ generateView (0, 0) height $ lines src
+
+  handleKeyEvent :: (MonadState ((Int, Int), ModuleState) m, MonadIO m, MonadPlus m) => (Key, [Modifier]) -> m a
+  handleKeyEvent (KChar 'q', [MCtrl]) =
+    mzero
+  handleKeyEvent e = do
+    liftIO $ print ("unknown key event: " ++ show e)
+    loop
 
 loadState [filename] = do
   l <- lines <$> readFile filename
