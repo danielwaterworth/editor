@@ -19,13 +19,16 @@ executable editor
   main-is:             Main.hs
   -- other-modules:       
   -- other-extensions:    
-  build-depends:       base >=4.8 && <4.9,
-                       haskell-src-exts,
+  build-depends:       base >= 4.9 && <= 5.0,
+                       haskell-src-exts >= 1.18 && <1.19,
                        vty,
-                       microlens-platform,
+                       lens,
                        transformers,
                        mtl,
                        zippers
+  other-modules:       Modes
+                       TextZipper
+                       View
   ghc-options:         -threaded
   hs-source-dirs:      src
   default-language:    Haskell2010

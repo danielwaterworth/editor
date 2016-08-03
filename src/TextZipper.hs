@@ -3,7 +3,7 @@ module TextZipper where
 
 import Data.List (isPrefixOf)
 
-import Lens.Micro.Platform
+import Control.Lens
 
 data TextZipper =
   TextZipper {

@@ -8,9 +8,9 @@ module Modes where
 import Data.Char (isDigit)
 import Data.List (intercalate)
 
-import Lens.Micro.Platform
+import Control.Lens
 
-import Control.Monad.State (evalStateT, StateT, MonadState)
+import Control.Monad.State (evalStateT, StateT, MonadState, get, put)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Trans.Maybe (runMaybeT, MaybeT)
 import Control.Monad (MonadPlus, mzero)
@@ -18,27 +18,30 @@ import Control.Zipper hiding (zipper)
 import qualified Control.Zipper as Z
 
 import Graphics.Vty
-import Language.Haskell.Exts
+import qualified Language.Haskell.Exts as HSE
 
 import View
 import TextZipper
 
 data Mod =
-  Mod
-    SrcSpanInfo
-    (Maybe (ModuleHead SrcSpanInfo))
-    [ModulePragma SrcSpanInfo]
-    [ImportDecl SrcSpanInfo]
-    [Decl SrcSpanInfo]
+  Mod {
+    _loc :: HSE.SrcSpanInfo,
+    _modHead :: (Maybe (HSE.ModuleHead HSE.SrcSpanInfo)),
+    _pragmas :: [HSE.ModulePragma HSE.SrcSpanInfo],
+    _imports :: [HSE.ImportDecl HSE.SrcSpanInfo],
+    _decls :: [HSE.Decl HSE.SrcSpanInfo]
+  }
+makeLenses ''Mod
+
+type Decl = HSE.Decl HSE.SrcSpanInfo
 
 data ModuleState h =
   ModuleState {
     _moduleStateFilename :: [Char],
     _moduleStateZipper :: h,
-    _moduleStateComments :: [Comment],
     _moduleStateDirty :: Bool
   }
-makeFields ''ModuleState
+makeLenses ''ModuleState
 
 data TextState =
   TextState {
@@ -47,7 +50,7 @@ data TextState =
     _textStateLastSearch :: String,
     _textStateDirty :: Bool
   }
-makeFields ''TextState
+makeLenses ''TextState
 
 textMode :: (MonadIO m, MonadPlus m) => Vty -> (Int, Int) -> TextState -> m a
 textMode vty bounds state =
@@ -66,7 +69,7 @@ textMode vty bounds state =
 
   generatePicture :: (MonadState ((Int, Int), TextState) m) => m Picture
   generatePicture = do
-    z <- use (_2 . zipper)
+    z <- use (_2 . textStateZipper)
     height <- use (_1 . _2)
     return (generateView (position z) height (zipperLines z))
 
@@ -76,7 +79,7 @@ textMode vty bounds state =
     picture <- generatePicture
     let statusBar = translateY (height - 1) $ string defAttr (status ++ (take width $ repeat ' '))
     let cursor = Cursor (length status) (height - 1)
-    
+
     return (picture `addToTop` statusBar) { picCursor = cursor }
 
   nextKeyEvent :: (MonadState ((Int, Int), TextState) m, MonadIO m) => m (Key, [Modifier])
@@ -101,7 +104,7 @@ textMode vty bounds state =
     case e of
       (KChar c, []) | isDigit c -> handleGoto (n * 10 + read [c])
       (KBS, []) -> handleGoto (n `div` 10)
-      (KEnter, []) -> (_2 . zipper) %= goto n
+      (KEnter, []) -> (_2 . textStateZipper) %= goto n
       _ -> return ()
 
   handleSearch term = do
@@ -114,23 +117,23 @@ textMode vty bounds state =
       (KBS, []) -> handleSearch (drop 1 term)
       (KEnter, []) -> do
         let term' = reverse term
-        (_2 . lastSearch) .= term'
-        (_2 . zipper) %= search term'
+        (_2 . textStateLastSearch) .= term'
+        (_2 . textStateZipper) %= search term'
       _ -> return ()
 
   switchToHaskellMode :: (MonadState ((Int, Int), TextState) m, MonadIO m, MonadPlus m) => m a
   switchToHaskellMode = do
     bounds <- use _1
-    f <- use (_2 . filename)
-    d <- use (_2 . dirty)
-    z <- use (_2 . zipper)
+    f <- use (_2 . textStateFilename)
+    d <- use (_2 . textStateDirty)
+    z <- use (_2 . textStateZipper)
     let contents = intercalate "\n" $ zipperLines z
-    case parseFileContentsWithComments defaultParseMode contents of
-      ParseOk (Module loc head pragmas imports decls, comments) -> do
+    case HSE.parseFileContents contents of
+      HSE.ParseOk (HSE.Module loc head pragmas imports decls) -> do
         let mod = Mod loc head pragmas imports decls
-        haskellMode vty bounds $ ModuleState f (Z.zipper mod) comments d
-      ParseFailed loc message -> do
-        pic <- generateWithStatus (show (srcLine loc) ++ ":" ++ show (srcColumn loc) ++ ":" ++ message)
+        haskellMode vty bounds $ ModuleState f (Z.zipper mod) d
+      HSE.ParseFailed loc message -> do
+        pic <- generateWithStatus (show (HSE.srcLine loc) ++ ":" ++ show (HSE.srcColumn loc) ++ ":" ++ message)
         liftIO $ update vty pic
         handleNextKey
       _ -> do
@@ -140,11 +143,11 @@ textMode vty bounds state =
 
   setDirty :: (MonadState (a, TextState) m) => m ()
   setDirty =
-    (_2 . dirty) .= True
+    (_2 . textStateDirty) .= True
 
   handleKeyEvent :: (MonadState ((Int, Int), TextState) m, MonadIO m, MonadPlus m) => (Key, [Modifier]) -> m a
   handleKeyEvent (KChar 'q', [MCtrl]) = do
-    d <- use (_2 . dirty)
+    d <- use (_2 . textStateDirty)
     if not d then
       mzero
      else do
@@ -155,30 +158,30 @@ textMode vty bounds state =
         (KChar '!', []) -> mzero
         _ -> loop
   handleKeyEvent (KChar 's', [MCtrl]) = do
-    (_2 . dirty) .= False
-    z <- use (_2 . zipper)
-    name <- use (_2 . filename)
+    (_2 . textStateDirty) .= False
+    z <- use (_2 . textStateZipper)
+    name <- use (_2 . textStateFilename)
     liftIO $ writeFile name $ intercalate "\n" $ zipperLines z
     loop
   handleKeyEvent (KChar 'd', [MCtrl]) = do
     setDirty
-    (_2 . zipper) %= deleteLine
+    (_2 . textStateZipper) %= deleteLine
     loop
   handleKeyEvent (KChar '\t', []) = do
     setDirty
-    (_2 . zipper) %= indent
+    (_2 . textStateZipper) %= indent
     loop
   handleKeyEvent (KBackTab, []) = do
     setDirty
-    (_2 . zipper) %= unindent
+    (_2 . textStateZipper) %= unindent
     loop
   handleKeyEvent (KChar 'c', [MCtrl]) = do
     setDirty
-    (_2 . zipper) %= commentOut
+    (_2 . textStateZipper) %= commentOut
     loop
   handleKeyEvent (KChar 'g', [MCtrl]) = do
     setDirty
-    (_2 . zipper) %= uncommentOut
+    (_2 . textStateZipper) %= uncommentOut
     loop
   handleKeyEvent (KChar 'l', [MCtrl]) = do
     handleGoto 0
@@ -187,44 +190,44 @@ textMode vty bounds state =
     handleSearch []
     loop
   handleKeyEvent (KChar 'n', [MCtrl]) = do
-    term <- use (_2 . lastSearch)
-    (_2 . zipper) %= search term
+    term <- use (_2 . textStateLastSearch)
+    (_2 . textStateZipper) %= search term
     loop
   handleKeyEvent (KChar 'e', [MCtrl]) = do
-    (_2 . zipper) %= gotoLineEnd
+    (_2 . textStateZipper) %= gotoLineEnd
     loop
   handleKeyEvent (KChar 'a', [MCtrl]) = do
-    (_2 . zipper) %= gotoLineStart
+    (_2 . textStateZipper) %= gotoLineStart
     loop
   handleKeyEvent (KChar 'h', [MMeta]) =
     switchToHaskellMode
   handleKeyEvent (KChar x, []) = do
     setDirty
-    (_2 . zipper) %= (insert x)
+    (_2 . textStateZipper) %= (insert x)
     loop
   handleKeyEvent (KUp, []) = do
-    (_2 . zipper) %= goUp
+    (_2 . textStateZipper) %= goUp
     loop
   handleKeyEvent (KDown, []) = do
-    (_2 . zipper) %= goDown
+    (_2 . textStateZipper) %= goDown
     loop
   handleKeyEvent (KLeft, []) = do
-    (_2 . zipper) %= goLeft
+    (_2 . textStateZipper) %= goLeft
     loop
   handleKeyEvent (KRight, []) = do
-    (_2 . zipper) %= goRight
+    (_2 . textStateZipper) %= goRight
     loop
   handleKeyEvent (KBS, []) = do
     setDirty
-    (_2 . zipper) %= backspace
+    (_2 . textStateZipper) %= backspace
     loop
   handleKeyEvent (KDel, []) = do
     setDirty
-    (_2 . zipper) %= delete
+    (_2 . textStateZipper) %= delete
     loop
   handleKeyEvent (KEnter, []) = do
     setDirty
-    (_2 . zipper) %= newline
+    (_2 . textStateZipper) %= newline
     loop
   handleKeyEvent e = do
     liftIO $ print ("unknown event " ++ show e)
@@ -264,26 +267,36 @@ haskellMode vty bounds state =
   generatePicture :: HMMonad m => m Picture
   generatePicture = do
     height <- use (_1 . _2)
-    z <- use (_2 . zipper)
-    let Mod loc head pragmas imports decls  = rezip z
-    let mod = Module loc head pragmas imports decls
-    comments <- use (_2 . comments)
-    let src = exactPrint mod comments
+    z <- use (_2 . moduleStateZipper)
+    let Mod loc head pragmas imports decls = rezip z
+    let mod = HSE.Module loc head pragmas imports decls
+    let src = HSE.prettyPrint mod
 
     return $ generateView (0, 0) height $ lines src
 
   handleKeyEvent :: HMMonad m => (Key, [Modifier]) -> m a
-  handleKeyEvent (KChar 'q', [MCtrl]) =
-    mzero
+  handleKeyEvent (KChar 'q', []) = mzero
+  handleKeyEvent (KChar 'd', []) = do
+    state <- get
+    let z = view (_2 . moduleStateZipper) state
+    case within (decls . traverse) z of
+        Nothing -> loop
+        Just z' -> do
+          state' <- declMode vty $ set (_2 . moduleStateZipper) z' state
+          put $ over (_2 . moduleStateZipper) upward state'
+          loop
+
   handleKeyEvent e = do
     liftIO $ print ("unknown key event: " ++ show e)
     loop
+
+declMode :: (MonadIO m, MonadPlus m) => Vty -> ((Int, Int), ModuleState (Top :>> Mod :>> Decl)) -> m ((Int, Int), ModuleState (Top :>> Mod :>> Decl))
+declMode = undefined
 
 loadState [filename] = do
   l <- lines <$> readFile filename
   let zipper =
         case l of
-
           [] -> TextZipper [] [] [] []
           (x:xs) -> TextZipper [] xs [] x
   return $ TextState filename zipper "" False
