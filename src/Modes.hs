@@ -1,4 +1,8 @@
-{-# LANGUAGE TemplateHaskell, FlexibleContexts, FlexibleInstances, MultiParamTypeClasses, FunctionalDependencies #-}
+{-# LANGUAGE TemplateHaskell, FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances, MultiParamTypeClasses #-}
+{-# LANGUAGE FunctionalDependencies #-}
+{-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE ConstraintKinds #-}
 module Modes where
 
 import Data.Char (isDigit)
@@ -10,6 +14,8 @@ import Control.Monad.State (evalStateT, StateT, MonadState)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Trans.Maybe (runMaybeT, MaybeT)
 import Control.Monad (MonadPlus, mzero)
+import Control.Zipper hiding (zipper)
+import qualified Control.Zipper as Z
 
 import Graphics.Vty
 import Language.Haskell.Exts
@@ -17,19 +23,27 @@ import Language.Haskell.Exts
 import View
 import TextZipper
 
-data ModuleState =
+data Mod =
+  Mod
+    SrcSpanInfo
+    (Maybe (ModuleHead SrcSpanInfo))
+    [ModulePragma SrcSpanInfo]
+    [ImportDecl SrcSpanInfo]
+    [Decl SrcSpanInfo]
+
+data ModuleState h =
   ModuleState {
-    _moduleStateDirty :: Bool,
     _moduleStateFilename :: [Char],
-    _moduleStateAstModule :: Module SrcSpanInfo,
-    _moduleStateComments :: [Comment]
+    _moduleStateZipper :: h,
+    _moduleStateComments :: [Comment],
+    _moduleStateDirty :: Bool
   }
 makeFields ''ModuleState
 
 data TextState =
   TextState {
     _textStateFilename :: [Char],
-    _textStateZipper :: Zipper,
+    _textStateZipper :: TextZipper,
     _textStateLastSearch :: String,
     _textStateDirty :: Bool
   }
@@ -112,10 +126,15 @@ textMode vty bounds state =
     z <- use (_2 . zipper)
     let contents = intercalate "\n" $ zipperLines z
     case parseFileContentsWithComments defaultParseMode contents of
-      ParseOk (mod, comments) -> do
-        haskellMode vty bounds $ ModuleState d f mod comments
+      ParseOk (Module loc head pragmas imports decls, comments) -> do
+        let mod = Mod loc head pragmas imports decls
+        haskellMode vty bounds $ ModuleState f (Z.zipper mod) comments d
       ParseFailed loc message -> do
         pic <- generateWithStatus (show (srcLine loc) ++ ":" ++ show (srcColumn loc) ++ ":" ++ message)
+        liftIO $ update vty pic
+        handleNextKey
+      _ -> do
+        pic <- generateWithStatus "Can't edit HSX"
         liftIO $ update vty pic
         handleNextKey
 
@@ -211,22 +230,24 @@ textMode vty bounds state =
     liftIO $ print ("unknown event " ++ show e)
     loop
 
-haskellMode :: (MonadIO m, MonadPlus m) => Vty -> (Int, Int) -> ModuleState -> m a
+type HMMonad m = (MonadState ((Int, Int), ModuleState (Top :>> Mod)) m, MonadIO m, MonadPlus m)
+
+haskellMode :: (MonadIO m, MonadPlus m) => Vty -> (Int, Int) -> ModuleState (Top :>> Mod) -> m a
 haskellMode vty bounds state =
   evalStateT loop (bounds, state)
  where
-  loop :: (MonadState ((Int, Int), ModuleState) m, MonadIO m, MonadPlus m) => m a
+  loop :: HMMonad m => m a
   loop = do
     pic <- generatePicture
     liftIO $ update vty pic
 
     handleNextKeyEvent
 
-  handleNextKeyEvent :: (MonadState ((Int, Int), ModuleState) m, MonadIO m, MonadPlus m) => m a
+  handleNextKeyEvent :: HMMonad m => m a
   handleNextKeyEvent =
     nextKeyEvent >>= handleKeyEvent
 
-  nextKeyEvent :: (MonadState ((Int, Int), ModuleState) m, MonadIO m) => m (Key, [Modifier])
+  nextKeyEvent :: HMMonad m => m (Key, [Modifier])
   nextKeyEvent = do
     e <- liftIO $ nextEvent vty
     case e of
@@ -240,16 +261,18 @@ haskellMode vty bounds state =
         liftIO $ print ("unknown event type " ++ show e)
         nextKeyEvent
 
-  generatePicture :: (MonadState ((Int, Int), ModuleState) m) => m Picture
+  generatePicture :: HMMonad m => m Picture
   generatePicture = do
     height <- use (_1 . _2)
-    mod <- use (_2 . astModule)
+    z <- use (_2 . zipper)
+    let Mod loc head pragmas imports decls  = rezip z
+    let mod = Module loc head pragmas imports decls
     comments <- use (_2 . comments)
     let src = exactPrint mod comments
 
     return $ generateView (0, 0) height $ lines src
 
-  handleKeyEvent :: (MonadState ((Int, Int), ModuleState) m, MonadIO m, MonadPlus m) => (Key, [Modifier]) -> m a
+  handleKeyEvent :: HMMonad m => (Key, [Modifier]) -> m a
   handleKeyEvent (KChar 'q', [MCtrl]) =
     mzero
   handleKeyEvent e = do
@@ -260,6 +283,7 @@ loadState [filename] = do
   l <- lines <$> readFile filename
   let zipper =
         case l of
-          [] -> Zipper [] [] [] []
-          (x:xs) -> Zipper [] xs [] x
+
+          [] -> TextZipper [] [] [] []
+          (x:xs) -> TextZipper [] xs [] x
   return $ TextState filename zipper "" False
