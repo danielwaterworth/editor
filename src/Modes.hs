@@ -12,92 +12,33 @@ import Data.List (intercalate)
 
 import Control.Lens
 
-import Control.Monad.State (evalStateT, execStateT, StateT, MonadState, get, put)
+import Control.Applicative
+
+import Control.Monad.Reader (MonadReader, ask, runReaderT)
+import Control.Monad.State (execStateT, runStateT, StateT, MonadState, get, put)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Trans.Maybe (runMaybeT, MaybeT)
 import Control.Monad (MonadPlus, mzero)
 import Control.Zipper.Simple
 
 import Graphics.Vty
-import qualified Language.Haskell.Exts as HSE
+import Language.Haskell.Exts
 
 import View
 
-data Mod =
-  Mod {
-    _loc :: HSE.SrcSpanInfo,
-    _modHead :: (Maybe (HSE.ModuleHead HSE.SrcSpanInfo)),
-    _pragmas :: [HSE.ModulePragma HSE.SrcSpanInfo],
-    _imports :: [HSE.ImportDecl HSE.SrcSpanInfo],
-    _decls :: [HSE.Decl HSE.SrcSpanInfo]
-  }
-makeLenses ''Mod
+makePrisms ''Module
+makePrisms ''Decl
 
-type Decl = HSE.Decl HSE.SrcSpanInfo
+type HaskellModule l = (l, Maybe (ModuleHead l), [ModulePragma l], [ImportDecl l], [Decl l])
 
-data ModuleState h =
-  ModuleState {
+data State h =
+  State {
+    _bounds :: (Int, Int),
     _moduleStateFilename :: [Char],
-    _moduleStateZipper :: h,
-   _moduleStateDirty :: Bool
+    _zipper :: h,
+    _moduleStateDirty :: Bool
   }
-makeLenses ''ModuleState
-
-type HMMonad m = (MonadState ((Int, Int), ModuleState (Root Mod)) m, MonadIO m, MonadPlus m)
-
-haskellMode :: (MonadIO m, MonadPlus m) => Vty -> (Int, Int) -> ModuleState (Root Mod) -> m a
-haskellMode vty bounds state =
-  evalStateT loop (bounds, state)
- where
-  loop :: HMMonad m => m a
-  loop = do
-    pic <- generatePicture
-    liftIO $ update vty pic
-
-    handleNextKeyEvent
-
-  handleNextKeyEvent :: HMMonad m => m a
-  handleNextKeyEvent =
-    nextKeyEvent >>= handleKeyEvent
-
-  nextKeyEvent :: HMMonad m => m (Key, [Modifier])
-  nextKeyEvent = do
-    e <- liftIO $ nextEvent vty
-    case e of
-      EvKey k m -> return (k, m)
-      EvResize width height -> do
-        _1 .= (width, height)
-        picture <- generatePicture
-        liftIO $ update vty picture
-        nextKeyEvent
-      _ -> do
-        liftIO $ print ("unknown event type " ++ show e)
-        nextKeyEvent
-
-  generatePicture :: HMMonad m => m Picture
-  generatePicture = do
-    height <- use (_1 . _2)
-    z <- use (_2 . moduleStateZipper)
-    let Mod loc head pragmas imports decls = rezip z
-    let mod = HSE.Module loc head pragmas imports decls
-    let src = HSE.prettyPrint mod
-
-    return $ (generateView (0, 0) height $ lines src) `addToTop` string defAttr "--- HASKELL ---"
-
-  handleKeyEvent :: HMMonad m => (Key, [Modifier]) -> m a
-  handleKeyEvent (KChar 'q', []) = mzero
-  handleKeyEvent (KChar 'd', []) = do
-    state <- get
-    let z = view (_2 . moduleStateZipper) state
-    case descendList $ descendLens decls z of
-        Nothing -> loop
-        Just z' -> do
-          state' <- declMode vty $ set (_2 . moduleStateZipper) z' state
-          put $ over (_2 . moduleStateZipper) (ascend . ascend) state'
-          loop
-  handleKeyEvent e = do
-    liftIO $ print ("unknown key event: " ++ show e)
-    loop
+makeLenses ''State
 
 tug :: (a -> Maybe a) -> a -> a
 tug f x =
@@ -106,78 +47,128 @@ tug f x =
     Just x' -> x'
 
 type MMonad z m = (
-    MonadState ((Int, Int), ModuleState z) m,
-    MonadIO m,
-    MonadPlus m
-  )
-
-type DMMonad z m = (
     Rooted z,
-    RootedAt z ~ Mod,
-    MMonad (z =*=> Decl) m
+    RootedAt z ~ Module SrcSpanInfo,
+    MonadIO m,
+    MonadPlus m,
+    MonadReader Vty m
   )
 
-declMode ::
-  (MonadIO m, MonadPlus m, Rooted z, RootedAt z ~ Mod) =>
-  Vty -> ((Int, Int), ModuleState (z =*=> Decl)) -> m ((Int, Int), ModuleState (z =*=> Decl))
-declMode vty (bounds, state) =
-  execStateT loop (bounds, state)
- where
-  loop :: DMMonad z m => m ()
-  loop = do
-    pic <- generatePicture
-    liftIO $ update vty pic
+class EditorMode z where
+  handleKeyEvent :: MMonad z m => (Key, [Modifier]) -> State z -> m (Either (State (BuildsOn z)) (State z))
 
-    handleNextKeyEvent
+  modeOverlay :: (MMonad z m, MonadState (State z) m) => m Image
 
-  handleNextKeyEvent :: DMMonad z m => m ()
-  handleNextKeyEvent =
-    nextKeyEvent >>= handleKeyEvent
+instance EditorMode (Root (Module SrcSpanInfo)) where
+  handleKeyEvent (KChar 'q', []) _ = mzero
+  handleKeyEvent (KChar 'h', []) s =
+    Right <$>
+      case descendPrism _Module $ view zipper s of
+        Nothing -> do
+          liftIO $ print "wrong kind of module"
+          return s
+        Just z' ->
+          runEditorMode $ set zipper z' s
+  handleKeyEvent e s = do
+    liftIO $ print $ "unknown key event type " ++ show e
+    return $ Right s
 
-  nextKeyEvent :: DMMonad z m => m (Key, [Modifier])
-  nextKeyEvent = do
-    e <- liftIO $ nextEvent vty
-    case e of
-      EvKey k m -> return (k, m)
-      EvResize width height -> do
-        _1 .= (width, height)
-        picture <- generatePicture
-        liftIO $ update vty picture
-        nextKeyEvent
-      _ -> do
-        liftIO $ print ("unknown event type " ++ show e)
-        nextKeyEvent
+  modeOverlay = return $ string defAttr "MODULE"
 
-  generatePicture :: DMMonad z m => m Picture
-  generatePicture = do
-    height <- use (_1 . _2)
-    z <- use (_2 . moduleStateZipper)
-    let Mod loc head pragmas imports decls = rezip z
-    let mod = HSE.Module loc head pragmas imports decls
-    let src = HSE.prettyPrint mod
+instance EditorMode (z ==> HaskellModule SrcSpanInfo) where
+  handleKeyEvent (KChar 'q', []) _ = mzero
+  handleKeyEvent (KChar 'd', []) s =
+    Right <$> runEditorMode (over zipper (descendLens _5) s)
+  handleKeyEvent e s = do
+    liftIO $ print $ "unknown key event type " ++ show e
+    return $ Right s
 
-    return $ (generateView (0, 0) height $ lines src) `addToTop` string defAttr "--- DECL ---"
+  modeOverlay = return $ string defAttr "HASKELL MODULE"
 
-  handleKeyEvent :: DMMonad z m => (Key, [Modifier]) -> m ()
-  handleKeyEvent (KChar 'q', []) = mzero
-  handleKeyEvent (KChar 'n', []) = do
-    (_2 . moduleStateZipper) %= tug rightward
-    loop
-  handleKeyEvent (KChar 'p', []) = do
-    (_2 . moduleStateZipper) %= tug leftward
-    loop
-  handleKeyEvent (KChar 'x', []) = do
-    (_2 . moduleStateZipper) %= tug (either (const Nothing) Just . deleteFocus)
-    loop
-  handleKeyEvent (KChar 'u', []) =
-    return ()
-  handleKeyEvent e = do
-    liftIO $ print ("unknown key event: " ++ show e)
-    loop
+instance EditorMode (z ==> [Decl SrcSpanInfo]) where
+  handleKeyEvent (KChar 'q', []) _ = mzero
+  handleKeyEvent (KChar 'f', []) s =
+    Right <$>
+      case descendList $ view zipper s of
+        Nothing -> do
+          liftIO $ print "can't descend into empty list"
+          return s
+        Just z' ->
+          runEditorMode $ set zipper z' s
+  handleKeyEvent e s = do
+    liftIO $ print $ "unknown key event type " ++ show e
+    return $ Right s
 
-loadState :: [String] -> IO (ModuleState (Root Mod))
+  modeOverlay = return $ string defAttr "DECL LIST"
+
+instance EditorMode (z =*=> Decl SrcSpanInfo) where
+  handleKeyEvent (KChar 'q', []) _ = mzero
+  handleKeyEvent (KChar 'x', []) s =
+    case deleteFocus $ view zipper s of
+      Left z' -> return $ Left $ set zipper z' s
+      Right z' -> return $ Right $ set zipper z' s
+  handleKeyEvent (KChar 'n', []) s =
+    return $ Right $ over zipper (tug rightward) s
+  handleKeyEvent (KChar 'p', []) s =
+    return $ Right $ over zipper (tug leftward) s
+  handleKeyEvent e s = do
+    liftIO $ print $ "unknown key event type " ++ show e
+    return $ Right s
+
+  modeOverlay = return $ string defAttr "DECL"
+
+type InEditorMode z m = (MMonad z m, EditorMode z, MonadState (State z) m)
+
+nextKeyEvent :: InEditorMode z m => m (Key, [Modifier])
+nextKeyEvent = do
+  vty <- ask
+  e <- liftIO $ nextEvent vty
+  case e of
+    EvKey k m -> return (k, m)
+    EvResize width height -> do
+      bounds .= (width, height)
+      picture <- generatePicture
+      liftIO $ update vty picture
+      nextKeyEvent
+    _ -> do
+      liftIO $ print ("unknown event type " ++ show e)
+      nextKeyEvent
+
+generatePicture :: InEditorMode z m => m Picture
+generatePicture = do
+  height <- use (bounds . _2)
+  z <- use zipper
+  let mod = rezip z
+  let src = prettyPrint mod
+
+  image <- modeOverlay
+  return $ (generateView (0, 0) height $ lines src) `addToTop` image
+
+handleNextKeyEvent :: (MMonad z m, EditorMode z) => State z -> m (Either (State (BuildsOn z)) (State z))
+handleNextKeyEvent state =
+  flip runStateT state nextKeyEvent >>= uncurry handleKeyEvent
+
+runEditorMode :: (MMonad z m, EditorMode z) => State z -> m (State (BuildsOn z))
+runEditorMode state = do
+  vty <- ask
+  state' <-
+    flip execStateT state $ do
+      pic <- generatePicture
+      liftIO $ update vty pic
+
+  state'' <- handleNextKeyEvent state'
+  case state'' of
+    Left x -> return x
+    Right state''' -> runEditorMode state'''
+
+run :: Vty -> State (Root (Module SrcSpanInfo)) -> IO ()
+run vty state = do
+  runMaybeT $ flip runReaderT vty $ runEditorMode state
+  return ()
+
+loadState :: [String] -> IO ((Int, Int) -> State (Root (Module SrcSpanInfo)))
 loadState [filename] = do
   src <- readFile filename
-  case HSE.parseFileContents src of
-    HSE.ParseOk (HSE.Module a b c d e) -> return $ ModuleState filename (root $ Mod a b c d e) False
+  case parseFileContents src of
+    ParseOk m -> return $ \bounds -> State bounds filename (root m) False
     _ -> undefined

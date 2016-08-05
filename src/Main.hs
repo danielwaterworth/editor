@@ -15,5 +15,5 @@ main = do
   bounds <- displayBounds $ outputIface vty
 
   finally
-    (runMaybeT $ haskellMode vty bounds state)
+    (run vty $ state bounds)
     (shutdown vty)
