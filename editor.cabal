@@ -27,7 +27,6 @@ executable editor
                        mtl,
                        simple-zipper
   other-modules:       Modes
-                       TextZipper
                        View
   ghc-options:         -threaded
   hs-source-dirs:      src
