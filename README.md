@@ -1,1 +1,1 @@
-Terminal based text-editor written in Haskell. Written for learning; may never be useful.
+Terminal based Haskell structure editor. Written for learning; may never be useful.
