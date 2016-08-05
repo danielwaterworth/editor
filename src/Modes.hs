@@ -3,6 +3,8 @@
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE RankNTypes #-}
 module Modes where
 
 import Data.Char (isDigit)
@@ -10,12 +12,11 @@ import Data.List (intercalate)
 
 import Control.Lens
 
-import Control.Monad.State (evalStateT, StateT, MonadState, get, put)
+import Control.Monad.State (evalStateT, execStateT, StateT, MonadState, get, put)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Trans.Maybe (runMaybeT, MaybeT)
 import Control.Monad (MonadPlus, mzero)
-import Control.Zipper hiding (zipper)
-import qualified Control.Zipper as Z
+import Control.Zipper.Simple
 
 import Graphics.Vty
 import qualified Language.Haskell.Exts as HSE
@@ -52,7 +53,7 @@ data TextState =
   }
 makeLenses ''TextState
 
-textMode :: (MonadIO m, MonadPlus m) => Vty -> (Int, Int) -> TextState -> m a
+textMode :: (MonadIO m1, MonadPlus m1) => Vty -> (Int, Int) -> TextState -> m1 a
 textMode vty bounds state =
   evalStateT loop (bounds, state)
  where
@@ -96,6 +97,7 @@ textMode vty bounds state =
         liftIO $ print ("unknown event type " ++ show e)
         nextKeyEvent
 
+  handleGoto :: (MonadState ((Int, Int), TextState) m, MonadIO m) => Int -> m ()
   handleGoto n = do
     pic <- generateWithStatus ("goto: " ++ if n == 0 then "" else show n)
     liftIO $ update vty pic
@@ -107,6 +109,7 @@ textMode vty bounds state =
       (KEnter, []) -> (_2 . textStateZipper) %= goto n
       _ -> return ()
 
+  handleSearch :: (MonadState ((Int, Int), TextState) m, MonadIO m) => String -> m ()
   handleSearch term = do
     pic <- generateWithStatus ("search: " ++ reverse term)
     liftIO $ update vty pic
@@ -131,7 +134,7 @@ textMode vty bounds state =
     case HSE.parseFileContents contents of
       HSE.ParseOk (HSE.Module loc head pragmas imports decls) -> do
         let mod = Mod loc head pragmas imports decls
-        haskellMode vty bounds $ ModuleState f (Z.zipper mod) d
+        haskellMode vty bounds $ ModuleState f (root mod) d
       HSE.ParseFailed loc message -> do
         pic <- generateWithStatus (show (HSE.srcLine loc) ++ ":" ++ show (HSE.srcColumn loc) ++ ":" ++ message)
         liftIO $ update vty pic
@@ -233,9 +236,9 @@ textMode vty bounds state =
     liftIO $ print ("unknown event " ++ show e)
     loop
 
-type HMMonad m = (MonadState ((Int, Int), ModuleState (Top :>> Mod)) m, MonadIO m, MonadPlus m)
+type HMMonad m = (MonadState ((Int, Int), ModuleState (Root Mod)) m, MonadIO m, MonadPlus m)
 
-haskellMode :: (MonadIO m, MonadPlus m) => Vty -> (Int, Int) -> ModuleState (Top :>> Mod) -> m a
+haskellMode :: (MonadIO m, MonadPlus m) => Vty -> (Int, Int) -> ModuleState (Root Mod) -> m a
 haskellMode vty bounds state =
   evalStateT loop (bounds, state)
  where
@@ -272,26 +275,98 @@ haskellMode vty bounds state =
     let mod = HSE.Module loc head pragmas imports decls
     let src = HSE.prettyPrint mod
 
-    return $ generateView (0, 0) height $ lines src
+    return $ (generateView (0, 0) height $ lines src) `addToTop` string defAttr "--- HASKELL ---"
 
   handleKeyEvent :: HMMonad m => (Key, [Modifier]) -> m a
   handleKeyEvent (KChar 'q', []) = mzero
   handleKeyEvent (KChar 'd', []) = do
     state <- get
     let z = view (_2 . moduleStateZipper) state
-    case within (decls . traverse) z of
+    case descendList $ descendLens decls z of
         Nothing -> loop
         Just z' -> do
           state' <- declMode vty $ set (_2 . moduleStateZipper) z' state
-          put $ over (_2 . moduleStateZipper) upward state'
+          put $ over (_2 . moduleStateZipper) (ascend . ascend) state'
           loop
-
   handleKeyEvent e = do
     liftIO $ print ("unknown key event: " ++ show e)
     loop
 
-declMode :: (MonadIO m, MonadPlus m) => Vty -> ((Int, Int), ModuleState (Top :>> Mod :>> Decl)) -> m ((Int, Int), ModuleState (Top :>> Mod :>> Decl))
-declMode = undefined
+tug :: (a -> Maybe a) -> a -> a
+tug f x =
+  case f x of
+    Nothing -> x
+    Just x' -> x'
+
+type MMonad z m = (
+    MonadState ((Int, Int), ModuleState z) m,
+    MonadIO m,
+    MonadPlus m
+  )
+
+type DMMonad z m = (
+    Rooted z,
+    RootedAt z ~ Mod,
+    MMonad (z =*=> Decl) m
+  )
+
+declMode ::
+  (MonadIO m, MonadPlus m, Rooted z, RootedAt z ~ Mod) =>
+  Vty -> ((Int, Int), ModuleState (z =*=> Decl)) -> m ((Int, Int), ModuleState (z =*=> Decl))
+declMode vty (bounds, state) =
+  execStateT loop (bounds, state)
+ where
+  loop :: DMMonad z m => m ()
+  loop = do
+    pic <- generatePicture
+    liftIO $ update vty pic
+
+    handleNextKeyEvent
+
+  handleNextKeyEvent :: DMMonad z m => m ()
+  handleNextKeyEvent =
+    nextKeyEvent >>= handleKeyEvent
+
+  nextKeyEvent :: DMMonad z m => m (Key, [Modifier])
+  nextKeyEvent = do
+    e <- liftIO $ nextEvent vty
+    case e of
+      EvKey k m -> return (k, m)
+      EvResize width height -> do
+        _1 .= (width, height)
+        picture <- generatePicture
+        liftIO $ update vty picture
+        nextKeyEvent
+      _ -> do
+        liftIO $ print ("unknown event type " ++ show e)
+        nextKeyEvent
+
+  generatePicture :: DMMonad z m => m Picture
+  generatePicture = do
+    height <- use (_1 . _2)
+    z <- use (_2 . moduleStateZipper)
+    let Mod loc head pragmas imports decls = rezip z
+    let mod = HSE.Module loc head pragmas imports decls
+    let src = HSE.prettyPrint mod
+
+    return $ (generateView (0, 0) height $ lines src) `addToTop` string defAttr "--- DECL ---"
+
+  handleKeyEvent :: DMMonad z m => (Key, [Modifier]) -> m ()
+  handleKeyEvent (KChar 'q', []) = mzero
+  handleKeyEvent (KChar 'n', []) = do
+    (_2 . moduleStateZipper) %= tug rightward
+    loop
+  handleKeyEvent (KChar 'p', []) = do
+    (_2 . moduleStateZipper) %= tug leftward
+    loop
+  handleKeyEvent (KChar 'x', []) = do
+    (_2 . moduleStateZipper) %= tug (either (const Nothing) Just . deleteFocus)
+    loop
+  handleKeyEvent (KChar 'u', []) =
+    return ()
+  handleKeyEvent e = do
+    liftIO $ print ("unknown key event: " ++ show e)
+    loop
 
 loadState [filename] = do
   l <- lines <$> readFile filename

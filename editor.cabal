@@ -25,7 +25,7 @@ executable editor
                        lens,
                        transformers,
                        mtl,
-                       zippers
+                       simple-zipper
   other-modules:       Modes
                        TextZipper
                        View
