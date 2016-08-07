@@ -31,7 +31,7 @@ main = hspec $
       it "works with a qualified import" $
         same "import qualified Foo"
 
-      it "should separate the head from the first import with an empty line" $
+      it "separates the head from the first import with an empty line" $
         same "module Main where\n\nimport Foo"
 
       it "works with a named import" $
