@@ -24,12 +24,9 @@ import Control.Zipper.Simple
 import Graphics.Vty
 import Language.Haskell.Exts
 
+import Pretty
 import View
-
-makePrisms ''Module
-makePrisms ''Decl
-
-type HaskellModule l = (l, Maybe (ModuleHead l), [ModulePragma l], [ImportDecl l], [Decl l])
+import Prisms
 
 data State h =
   State {
@@ -63,7 +60,7 @@ instance EditorMode (Root (Module SrcSpanInfo)) where
   handleKeyEvent (KChar 'q', []) _ = mzero
   handleKeyEvent (KChar 'h', []) s =
     Right <$>
-      case descendPrism _Module $ view zipper s of
+      case descendPrism _Module' $ view zipper s of
         Nothing -> do
           liftIO $ print "wrong kind of module"
           return s
@@ -75,10 +72,10 @@ instance EditorMode (Root (Module SrcSpanInfo)) where
 
   modeOverlay = return $ string defAttr "MODULE"
 
-instance EditorMode (z ==> HaskellModule SrcSpanInfo) where
+instance EditorMode (z ==> C_Module SrcSpanInfo) where
   handleKeyEvent (KChar 'q', []) _ = mzero
   handleKeyEvent (KChar 'd', []) s =
-    Right <$> runEditorMode (over zipper (descendLens _5) s)
+    Right <$> runEditorMode (over zipper (descendLens (_Wrapped . _5)) s)
   handleKeyEvent e s = do
     liftIO $ print $ "unknown key event type " ++ show e
     return $ Right s

@@ -6,6 +6,7 @@ import Control.Monad.Trans.Maybe (runMaybeT)
 import System.Environment (getArgs)
 
 import Modes
+import Printer
 
 main = do
   args <- getArgs

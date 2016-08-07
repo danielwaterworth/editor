@@ -25,9 +25,15 @@ executable editor
                        lens,
                        transformers,
                        mtl,
-                       simple-zipper
+                       simple-zipper,
+                       syb-with-class,
+                       template-haskell,
+                       constraints
   other-modules:       Modes
                        View
+                       Prisms
+                       Pretty
+                       Printer
   ghc-options:         -threaded
   hs-source-dirs:      src
   default-language:    Haskell2010
