@@ -16,12 +16,11 @@ library
   hs-source-dirs:      src
   exposed-modules:     Pretty
                        Printer
-                       Prisms
                        View
                        Modes
-                       TypeList
   build-depends:       base >= 4.7 && < 5
                      , haskell-src-exts >= 1.18 && <1.19
+                     , haskell-src-exts-prisms
                      , vty
                      , lens
                      , transformers
@@ -37,6 +36,7 @@ executable e
   build-depends:       base
                      , editor
                      , haskell-src-exts >= 1.18 && <1.19
+                     , haskell-src-exts-prisms
                      , vty
                      , lens
                      , transformers
@@ -53,6 +53,7 @@ test-suite editor-test
                      , editor
                      , hspec
                      , haskell-src-exts >= 1.18 && <1.19
+                     , haskell-src-exts-prisms
                      , vty
                      , lens
                      , transformers

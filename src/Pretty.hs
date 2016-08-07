@@ -11,6 +11,7 @@
 module Pretty where
 
 import Language.Haskell.Exts hiding (Pretty, pretty)
+import Language.Haskell.Exts.Prisms
 
 import Data.Typeable (Typeable, typeOf)
 import Data.Maybe
@@ -22,8 +23,6 @@ import Control.Monad (when, guard)
 import Control.Monad.Except (MonadError, throwError)
 import Control.Lens
 import Control.Zipper.Simple
-
-import Prisms
 
 class (Applicative m, Monad m, MonadError String m) => Printer m where
   s :: String -> m ()

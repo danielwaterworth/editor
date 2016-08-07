@@ -23,10 +23,10 @@ import Control.Zipper.Simple
 
 import Graphics.Vty
 import Language.Haskell.Exts
+import Language.Haskell.Exts.Prisms
 
 import Pretty
 import View
-import Prisms
 
 data State h =
   State {
