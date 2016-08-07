@@ -118,6 +118,30 @@ import qualified Language.Haskell.TH as TH
   ]
 
 makeWrapped ''C_Module
+makeWrapped ''C_IVar
+makeWrapped ''C_IAbs
+makeWrapped ''C_IThingAll
+makeWrapped ''C_IThingWith
+makeWrapped ''C_Ident
+makeWrapped ''C_Symbol
 
 _Module' :: Prism' (Module l) (C_Module l)
 _Module' = _Module . _Unwrapped
+
+_IVar' :: Prism' (ImportSpec l) (C_IVar l)
+_IVar' = _IVar . _Unwrapped
+
+_IAbs' :: Prism' (ImportSpec l) (C_IAbs l)
+_IAbs' = _IAbs . _Unwrapped
+
+_IThingAll' :: Prism' (ImportSpec l) (C_IThingAll l)
+_IThingAll' = _IThingAll . _Unwrapped
+
+_IThingWith' :: Prism' (ImportSpec l) (C_IThingWith l)
+_IThingWith' = _IThingWith . _Unwrapped
+
+_Ident' :: Prism' (Name l) (C_Ident l)
+_Ident' = _Ident . _Unwrapped
+
+_Symbol' :: Prism' (Name l) (C_Symbol l)
+_Symbol' = _Symbol . _Unwrapped
