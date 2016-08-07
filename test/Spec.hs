@@ -10,7 +10,7 @@ parse' :: String -> Module ()
 parse' x = fmap (const ()) $ fromParseResult $ parseFileContents x
 
 same :: String -> Expectation
-same x = shouldBe (prettyPrint $ parse' x) (Just x)
+same x = shouldBe (prettyPrint $ parse' x) (Right x)
 
 main :: IO ()
 main = hspec $

@@ -12,13 +12,15 @@ module Pretty where
 
 import Language.Haskell.Exts hiding (Pretty, pretty)
 
+import Data.Typeable (Typeable, typeOf)
 import Data.Maybe
 import Data.List (intersperse)
 import Data.Constraint
 import Data.Foldable
 
 import Control.Applicative
-import Control.Monad (MonadPlus, mzero, when, guard)
+import Control.Monad (when, guard)
+import Control.Monad.Except (MonadError, throwError)
 import Control.Lens
 import Control.Zipper.Simple
 import Data.Generics.SYB.WithClass.Basics
@@ -26,17 +28,25 @@ import Data.Generics.SYB.WithClass.Instances ()
 
 import Prisms
 
-class (Applicative m, Monad m, MonadPlus m) => Printer m where
+class (Applicative m, Monad m, MonadError String m) => Printer m where
   s :: String -> m ()
   highlight :: m a -> m a
   newline :: m ()
 
-pull :: MonadPlus m => Maybe a -> m a
-pull = maybe mzero return
+prettyPrism :: (Printer m, Pretty a) => Prism' s a -> s -> m Bool
+prettyPrism p x = do
+  case preview p x of
+    Nothing -> return False
+    Just v' -> pretty v' >> return True
 
-prettyPrism :: (Printer m, Pretty a) => Prism' s a -> s -> m ()
-prettyPrism p x =
-  pull (preview p x) >>= pretty
+attemptAll :: Monad m => [m Bool] -> m ()
+attemptAll [] = return ()
+attemptAll (x : xs) = do
+  v <- x
+  if v then
+    return ()
+   else
+    attemptAll xs
 
 newtype DPretty a = DPretty (Dict (Pretty a))
 
@@ -65,14 +75,19 @@ parens m = do
 class Pretty a where
   pretty :: Printer m => a -> m ()
 
-instance {-# OVERLAPPABLE #-} Pretty a where
-  pretty _ = mzero
+instance {-# OVERLAPPABLE #-} Typeable a => Pretty a where
+  pretty x = throwError $ show $ typeOf x
 
 instance Pretty () where
   pretty = return
 
 instance Pretty (Module ()) where
-  pretty = prettyPrism _Module'
+  pretty x =
+    attemptAll [
+      prettyPrism _Module' x,
+      prettyPrism _XmlPage' x,
+      prettyPrism _XmlHybrid' x
+    ]
 
 instance Pretty (C_Module ()) where
   pretty (C_Module (_, head, pragmas, imports, decls)) =
@@ -87,7 +102,7 @@ instance Pretty (ModuleHead ()) where
     s "module "
     pretty name
     s " where"
-  pretty _ = mzero
+  pretty _ = throwError "unhandled ModuleHead"
 
 instance Pretty (ModuleName ()) where
   pretty (ModuleName _ x) = s x
@@ -101,7 +116,7 @@ instance Pretty (ImportDecl ()) where
       s " as "
       pretty name
     pretty spec
-  pretty _ = mzero
+  pretty _ = throwError "unhandled ImportDecl"
 
 instance Pretty (Maybe (ImportSpecList ())) where
   pretty x =
@@ -115,7 +130,7 @@ instance Pretty (Maybe (ImportSpecList ())) where
 
 instance Pretty (ImportSpec ()) where
   pretty x =
-    msum [
+    attemptAll [
       prettyPrism _IVar' x,
       prettyPrism _IAbs' x,
       prettyPrism _IThingAll' x,
@@ -127,7 +142,7 @@ instance Pretty (C_IVar ()) where
 
 instance Pretty (Name ()) where
   pretty x =
-    msum [
+    attemptAll [
       prettyPrism _Ident' x,
       prettyPrism _Symbol' x
     ]
@@ -137,7 +152,7 @@ instance Pretty (C_Ident ()) where
 
 instance Pretty (Decl ()) where
   pretty x =
-    msum [
+    attemptAll [
       prettyPrism _TypeDecl' x,
       prettyPrism _TypeFamDecl' x,
       prettyPrism _ClosedTypeFamDecl' x,
@@ -178,7 +193,7 @@ instance Pretty (C_TypeSig ()) where
     pretty name
     s " :: "
     pretty ty
-  pretty _ = mzero
+  pretty _ = throwError "unhandled C_TypeSig"
 
 instance Pretty (C_FunBind ()) where
   pretty (C_FunBind ((), matches)) = do
@@ -188,7 +203,7 @@ instance Pretty (C_FunBind ()) where
 
 instance Pretty (Match ()) where
   pretty x =
-    msum [
+    attemptAll [
       prettyPrism _Match' x,
       prettyPrism _InfixMatch' x
     ]
@@ -201,7 +216,7 @@ instance Pretty (C_Match ()) where
 
 instance Pretty (Rhs ()) where
   pretty x =
-    msum [
+    attemptAll [
       prettyPrism _UnGuardedRhs' x,
       prettyPrism _GuardedRhss' x
     ]
@@ -211,7 +226,7 @@ instance Pretty (C_UnGuardedRhs ()) where
 
 instance Pretty (Exp ()) where
   pretty x =
-    msum [
+    attemptAll [
       prettyPrism _Var' x,
       prettyPrism _OverloadedLabel' x,
       prettyPrism _IPVar' x,
@@ -274,7 +289,7 @@ instance Pretty (C_Con ()) where
 
 instance Pretty (Type ()) where
   pretty x =
-    msum [
+    attemptAll [
       prettyPrism _TyForall' x,
       prettyPrism _TyFun' x,
       prettyPrism _TyTuple' x,
@@ -299,7 +314,7 @@ instance Pretty (C_TyCon ()) where
 
 instance Pretty (QName ()) where
   pretty x =
-    msum [
+    attemptAll [
       prettyPrism _Qual' x,
       prettyPrism _UnQual' x,
       prettyPrism _Special' x
