@@ -14,7 +14,7 @@ import Data.List (foldl')
 import Control.Monad
 import Control.Applicative
 
-import Control.Lens hiding (Context)
+import Control.Lens (makeWrapped, Prism', _Unwrapped)
 import Control.Lens.TH
 import Data.Generics.SYB.WithClass.Derive
 
@@ -43,28 +43,31 @@ $(concat <$>
     if length constructors >= 2 then
       concat <$>
         forM constructors (\(TH.NormalC name tys) -> do
-          let name' = TH.mkName $ "C_" ++ TH.nameBase name
+          Just name' <- TH.lookupTypeName $ "C_" ++ TH.nameBase name
           makeWrapped name')
     else
       return []))
 
-_Module' :: Prism' (Module l) (C_Module l)
-_Module' = _Module . _Unwrapped
+$(concat <$>
+  forM types (\tName -> do
+    TH.TyConI (TH.DataD _ _ binders Nothing constructors deriv) <- TH.reify tName
+    if length constructors >= 2 then
+      concat <$>
+        forM constructors (\(TH.NormalC cName tys) -> do
+          Just ty <- TH.lookupTypeName $ "C_" ++ TH.nameBase cName
+          Just prismTy <- TH.lookupTypeName "Prism'"
+          Just compose <- TH.lookupValueName "."
+          Just unwrapped <- TH.lookupValueName "_Unwrapped"
+          Just prism <- TH.lookupValueName $ "_" ++ TH.nameBase cName
 
-_IVar' :: Prism' (ImportSpec l) (C_IVar l)
-_IVar' = _IVar . _Unwrapped
-
-_IAbs' :: Prism' (ImportSpec l) (C_IAbs l)
-_IAbs' = _IAbs . _Unwrapped
-
-_IThingAll' :: Prism' (ImportSpec l) (C_IThingAll l)
-_IThingAll' = _IThingAll . _Unwrapped
-
-_IThingWith' :: Prism' (ImportSpec l) (C_IThingWith l)
-_IThingWith' = _IThingWith . _Unwrapped
-
-_Ident' :: Prism' (Name l) (C_Ident l)
-_Ident' = _Ident . _Unwrapped
-
-_Symbol' :: Prism' (Name l) (C_Symbol l)
-_Symbol' = _Symbol . _Unwrapped
+          let name' = TH.mkName $ "_" ++ TH.nameBase cName ++ "'"
+          vars <- replicateM (length binders) $ TH.newName "v"
+          let f x = foldl' TH.AppT x $ map TH.VarT vars
+          let baseTy = f $ TH.ConT tName
+          let cTy = f $ TH.ConT ty
+          let binding = TH.SigD name' $ TH.ConT prismTy `TH.AppT` baseTy `TH.AppT` cTy
+          let exp = TH.ParensE (TH.VarE compose) `TH.AppE` TH.VarE prism `TH.AppE` TH.VarE unwrapped
+          let v = TH.ValD (TH.VarP name') (TH.NormalB exp) []
+          return [binding, v])
+    else
+      return []))

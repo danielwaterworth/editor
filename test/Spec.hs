@@ -46,7 +46,7 @@ main = hspec $
       it "works with a hiding clause" $
         same "import Foo hiding (foo)"
 
-    describe "decl" $
+    describe "a decl" $
       describe "for a type" $
         it "works in a simple case" $
           same "a :: Bool"
