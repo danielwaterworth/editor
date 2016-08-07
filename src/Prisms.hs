@@ -20,110 +20,33 @@ import Data.Generics.SYB.WithClass.Derive
 
 import qualified Language.Haskell.TH as TH
 
-(\names -> do
-  prisms <- concat <$> mapM makePrisms names
-  dataInstances <- deriveData names
+import TypeList
 
-  decls <-
-    concat <$>
-      forM names (\name -> do
-        TH.TyConI (TH.DataD _ _ binders Nothing constructors deriv) <- TH.reify name
-        if length constructors >= 2 then
-          forM constructors (\(TH.NormalC name tys) -> do
-            let name' = TH.mkName $ "C_" ++ TH.nameBase name
-            let ty = foldl' TH.AppT (TH.TupleT $ length tys) $ map snd tys
-            let unbanged = TH.Bang TH.NoSourceUnpackedness TH.NoSourceStrictness
-            return $ TH.NewtypeD [] name' binders Nothing (TH.NormalC name' [(unbanged, ty)]) deriv)
-         else
-          return [])
+concat <$> mapM makePrisms types
+deriveData types
 
-  return $ prisms ++ dataInstances ++ decls) [
-    ''Module,
-    ''ModuleHead,
-    ''WarningText,
-    ''ExportSpecList,
-    ''ExportSpec,
-    ''EWildcard,
-    ''ImportDecl,
-    ''ImportSpecList,
-    ''ImportSpec,
-    ''Assoc,
-    ''Namespace,
-    ''Decl,
-    ''DeclHead,
-    ''InstRule,
-    ''InstHead,
-    ''Binds,
-    ''IPBind,
-    ''PatternSynDirection,
-    ''InjectivityInfo,
-    ''ResultSig,
-    ''ClassDecl,
-    ''InstDecl,
-    ''Deriving,
-    ''DataOrNew,
-    ''ConDecl,
-    ''FieldDecl,
-    ''QualConDecl,
-    ''GadtDecl,
-    ''BangType,
-    ''Unpackedness,
-    ''Match,
-    ''Rhs,
-    ''GuardedRhs,
-    ''Context,
-    ''FunDep,
-    ''Asst,
-    ''Type,
-    ''Boxed,
-    ''Kind,
-    ''TyVarBind,
-    ''Promoted,
-    ''TypeEqn,
-    ''Exp,
-    ''Stmt,
-    ''QualStmt,
-    ''FieldUpdate,
-    ''Alt,
-    ''XAttr,
-    ''Pat,
-    ''PatField,
-    ''PXAttr,
-    ''RPat,
-    ''RPatOp,
-    ''Literal,
-    ''Sign,
-    ''ModuleName,
-    ''QName,
-    ''Name,
-    ''QOp,
-    ''Op,
-    ''SpecialCon,
-    ''CName,
-    ''IPName,
-    ''XName,
-    ''Role,
-    ''Bracket,
-    ''Splice,
-    ''Safety,
-    ''CallConv,
-    ''ModulePragma,
-    ''Tool,
-    ''Overlap,
-    ''Rule,
-    ''RuleVar,
-    ''Activation,
-    ''Annotation,
-    ''BooleanFormula
-  ]
+$(concat <$>
+  forM types (\name -> do
+    TH.TyConI (TH.DataD _ _ binders Nothing constructors deriv) <- TH.reify name
+    if length constructors >= 2 then
+      forM constructors (\(TH.NormalC name tys) -> do
+        let name' = TH.mkName $ "C_" ++ TH.nameBase name
+        let ty = foldl' TH.AppT (TH.TupleT $ length tys) $ map snd tys
+        let unbanged = TH.Bang TH.NoSourceUnpackedness TH.NoSourceStrictness
+        return $ TH.NewtypeD [] name' binders Nothing (TH.NormalC name' [(unbanged, ty)]) deriv)
+     else
+      return []))
 
-makeWrapped ''C_Module
-makeWrapped ''C_IVar
-makeWrapped ''C_IAbs
-makeWrapped ''C_IThingAll
-makeWrapped ''C_IThingWith
-makeWrapped ''C_Ident
-makeWrapped ''C_Symbol
+$(concat <$>
+  forM types (\name -> do
+    TH.TyConI (TH.DataD _ _ binders Nothing constructors deriv) <- TH.reify name
+    if length constructors >= 2 then
+      concat <$>
+        forM constructors (\(TH.NormalC name tys) -> do
+          let name' = TH.mkName $ "C_" ++ TH.nameBase name
+          makeWrapped name')
+    else
+      return []))
 
 _Module' :: Prism' (Module l) (C_Module l)
 _Module' = _Module . _Unwrapped

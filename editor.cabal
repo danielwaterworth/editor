@@ -19,6 +19,7 @@ library
                        Prisms
                        View
                        Modes
+                       TypeList
   build-depends:       base >= 4.7 && < 5
                      , haskell-src-exts >= 1.18 && <1.19
                      , vty
