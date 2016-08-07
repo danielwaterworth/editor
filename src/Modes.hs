@@ -144,7 +144,7 @@ generatePicture = do
   return $ (generateView (0, 0) height $ lines src) `addToTop` image
 
 handleNextKeyEvent :: (MMonad z m, EditorMode z) => StateT (EitherT (State (BuildsOn z))) m ()
-handleNextKeyEvent = do
+handleNextKeyEvent =
   nextKeyEvent >>= juggle handleKeyEvent
 
 juggle :: Monad m => (a -> s -> m (Either e s)) -> a -> StateT (EitherT e) m s
