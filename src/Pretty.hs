@@ -15,7 +15,6 @@ import Language.Haskell.Exts hiding (Pretty, pretty)
 import Data.Typeable (Typeable, typeOf)
 import Data.Maybe
 import Data.List (intersperse)
-import Data.Constraint
 import Data.Foldable
 
 import Control.Applicative
@@ -23,8 +22,6 @@ import Control.Monad (when, guard)
 import Control.Monad.Except (MonadError, throwError)
 import Control.Lens
 import Control.Zipper.Simple
-import Data.Generics.SYB.WithClass.Basics
-import Data.Generics.SYB.WithClass.Instances ()
 
 import Prisms
 
@@ -47,20 +44,6 @@ attemptAll (x : xs) = do
     return ()
    else
     attemptAll xs
-
-newtype DPretty a = DPretty (Dict (Pretty a))
-
-instance Pretty a => Sat (DPretty a) where
-  dict = DPretty Dict
-
-prettyD :: forall a m. (Data DPretty a, Printer m) => a -> m ()
-prettyD x =
-  case (dict :: DPretty a) of
-    DPretty Dict -> pretty x
-
-mapPrettySepByM :: (Data DPretty a, Printer m) => m () -> a -> m ()
-mapPrettySepByM sep =
-  sequence_ . intersperse sep . gmapQ (undefined :: Proxy DPretty) prettyD
 
 newlineTwice :: Printer m => m ()
 newlineTwice = newline >> newline

@@ -16,14 +16,12 @@ import Control.Applicative
 
 import Control.Lens (makeWrapped, Prism', _Unwrapped)
 import Control.Lens.TH
-import Data.Generics.SYB.WithClass.Derive
 
 import qualified Language.Haskell.TH as TH
 
 import TypeList
 
 concat <$> mapM makePrisms types
-deriveData types
 
 $(concat <$>
   forM types (\name -> do
