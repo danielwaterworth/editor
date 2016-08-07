@@ -11,6 +11,7 @@ module Pretty where
 
 import Language.Haskell.Exts hiding (Pretty, pretty)
 
+import Data.Maybe
 import Data.List (intersperse)
 import Data.Constraint
 
@@ -49,6 +50,9 @@ mapPrettySepByM :: (Data DPretty a, Printer m) => m () -> a -> m ()
 mapPrettySepByM sep =
   sequence_ . intersperse sep . gmapQ (undefined :: Proxy DPretty) prettyD
 
+newlineTwice :: Printer m => m ()
+newlineTwice = newline >> newline
+
 class Pretty a where
   pretty :: Printer m => a -> m ()
 
@@ -62,4 +66,26 @@ instance Pretty (Module ()) where
   pretty = prettyPrism _Module'
 
 instance Pretty (C_Module ()) where
-  pretty = mapPrettySepByM newline . view _Wrapped
+  pretty (C_Module (_, head, pragmas, imports, decls)) =
+    sequence_ $
+      intersperse newlineTwice $
+        map sequence_ $
+          filter (not . null) $
+            [map pretty (maybeToList head), map pretty pragmas, map pretty imports, map pretty decls]
+
+instance {-# OVERLAPPABLE #-} Pretty a => Pretty (Maybe a) where
+  pretty Nothing = return ()
+  pretty (Just x) = pretty x
+
+instance Pretty (ModuleHead ()) where
+  pretty (ModuleHead _ name Nothing Nothing) = do
+    s "module "
+    pretty name
+    s " where"
+  pretty _ = mzero
+
+instance Pretty (ModuleName ()) where
+  pretty (ModuleName _ x) = s x
+
+instance {-# OVERLAPPABLE #-} Pretty a => Pretty [a] where
+  pretty = mapM_ pretty
