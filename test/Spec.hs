@@ -51,6 +51,15 @@ main = hspec $
         it "works in a simple case" $
           same "a :: Bool"
 
-      describe "that is a binding" $
+      describe "that is a binding" $ do
         it "works in a simple case" $
           same "a = True"
+
+        it "works with a function application" $
+          same "a x = f x"
+
+        it "works with a pattern match" $
+          same "a (Foo f) = f"
+
+        it "works with two arguments" $
+          same "f x y = Bar"

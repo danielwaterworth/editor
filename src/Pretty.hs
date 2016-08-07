@@ -76,7 +76,7 @@ class Pretty a where
   pretty :: Printer m => a -> m ()
 
 instance {-# OVERLAPPABLE #-} Typeable a => Pretty a where
-  pretty x = throwError $ show $ typeOf x
+  pretty x = throwError $ "Not implemented: " ++ show (typeOf x)
 
 instance Pretty () where
   pretty = return
@@ -201,6 +201,12 @@ instance Pretty (C_FunBind ()) where
       intersperse newline $
         map pretty matches
 
+instance Pretty (C_PatBind ()) where
+  pretty (C_PatBind ((), pat, rhs, Nothing)) = do
+    pretty pat
+    s " = "
+    pretty rhs
+
 instance Pretty (Match ()) where
   pretty x =
     attemptAll [
@@ -209,10 +215,15 @@ instance Pretty (Match ()) where
     ]
 
 instance Pretty (C_Match ()) where
-  pretty (C_Match ((), name, [], rhs, Nothing)) = do
+  pretty (C_Match ((), name, bindings, rhs, Nothing)) = do
     pretty name
-    s " = "
+    s " "
+    forM_ bindings $ \binding -> do
+      pretty binding
+      s " "
+    s "= "
     pretty rhs
+  pretty _ = throwError "unhandled C_Match"
 
 instance Pretty (Rhs ()) where
   pretty x =
@@ -223,6 +234,51 @@ instance Pretty (Rhs ()) where
 
 instance Pretty (C_UnGuardedRhs ()) where
   pretty (C_UnGuardedRhs ((), exp)) = pretty exp
+
+instance Pretty [Pat ()] where
+  pretty x =
+    sequence_ $
+      intersperse (s " ") $
+        map pretty x
+
+instance Pretty (Pat ()) where
+  pretty x =
+    attemptAll [
+      prettyPrism _PVar' x,
+      prettyPrism _PLit' x,
+      prettyPrism _PNPlusK' x,
+      prettyPrism _PInfixApp' x,
+      prettyPrism _PApp' x,
+      prettyPrism _PTuple' x,
+      prettyPrism _PList' x,
+      prettyPrism _PParen' x,
+      prettyPrism _PRec' x,
+      prettyPrism _PAsPat' x,
+      prettyPrism _PWildCard' x,
+      prettyPrism _PIrrPat' x,
+      prettyPrism _PatTypeSig' x,
+      prettyPrism _PViewPat' x,
+      prettyPrism _PRPat' x,
+      prettyPrism _PXTag' x,
+      prettyPrism _PXETag' x,
+      prettyPrism _PXPcdata' x,
+      prettyPrism _PXPatTag' x,
+      prettyPrism _PXRPats' x,
+      prettyPrism _PQuasiQuote' x,
+      prettyPrism _PBangPat' x
+    ]
+
+instance Pretty (C_PVar ()) where
+  pretty (C_PVar ((), name)) = pretty name
+
+instance Pretty (C_PParen ()) where
+  pretty (C_PParen ((), x)) = parens $ pretty x
+
+instance Pretty (C_PApp ()) where
+  pretty (C_PApp ((), f, x)) = do
+    pretty f
+    s " "
+    pretty x
 
 instance Pretty (Exp ()) where
   pretty x =
@@ -286,6 +342,15 @@ instance Pretty (Exp ()) where
 
 instance Pretty (C_Con ()) where
   pretty (C_Con ((), name)) = pretty name
+
+instance Pretty (C_App ()) where
+  pretty (C_App ((), f, x)) = do
+    pretty f
+    s " "
+    pretty x
+
+instance Pretty (C_Var ()) where
+  pretty (C_Var ((), name)) = pretty name
 
 instance Pretty (Type ()) where
   pretty x =
