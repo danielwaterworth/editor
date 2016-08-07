@@ -46,7 +46,11 @@ main = hspec $
       it "works with a hiding clause" $
         same "import Foo hiding (foo)"
 
-    describe "a decl" $
-      describe "for a type" $
+    describe "a decl" $ do
+      describe "that is a type signature" $
         it "works in a simple case" $
           same "a :: Bool"
+
+      describe "that is a binding" $
+        it "works in a simple case" $
+          same "a = True"
