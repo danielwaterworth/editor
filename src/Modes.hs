@@ -14,12 +14,14 @@ import Control.Lens
 
 import Control.Applicative
 
+import Control.Monad (void)
 import Control.Monad.Reader (MonadReader, ask, runReaderT)
 import Control.Monad.State (execStateT, runStateT, StateT, MonadState, get, put)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Trans.Maybe (runMaybeT, MaybeT)
 import Control.Monad (MonadPlus, mzero)
 import Control.Zipper.Simple
+import Control.Monad.Trans.Either
 
 import Graphics.Vty
 import Language.Haskell.Exts
@@ -141,27 +143,25 @@ generatePicture = do
   image <- modeOverlay
   return $ (generateView (0, 0) height $ lines src) `addToTop` image
 
-handleNextKeyEvent :: (MMonad z m, EditorMode z) => State z -> m (Either (State (BuildsOn z)) (State z))
-handleNextKeyEvent state =
-  flip runStateT state nextKeyEvent >>= uncurry handleKeyEvent
+handleNextKeyEvent :: (MMonad z m, EditorMode z) => StateT (EitherT (State (BuildsOn z))) m ()
+handleNextKeyEvent = do
+  nextKeyEvent >>= juggle handleKeyEvent
 
-runEditorMode :: (MMonad z m, EditorMode z) => State z -> m (State (BuildsOn z))
-runEditorMode state = do
+juggle :: Monad m => (a -> s -> m (Either e s)) -> a -> StateT (EitherT e) m s
+juggle = fmap modifyT . (fmap . fmap) EitherT
+
+modifyT :: Monad m => (s -> m s) -> StateT s m ()
+modifyT f = StateT $ \s -> (,) () <$> f s
+
+runEditorMode :: (MMonad z m, EditorMode z) => State z -> EitherT (State (BuildsOn z)) m Void
+runEditorMode = evalStateT $ forever $ do
   vty <- ask
-  state' <-
-    flip execStateT state $ do
-      pic <- generatePicture
-      liftIO $ update vty pic
-
-  state'' <- handleNextKeyEvent state'
-  case state'' of
-    Left x -> return x
-    Right state''' -> runEditorMode state'''
+  pic <- generatePicture
+  liftIO $ update vty pic
+  handleNextKeyEvent
 
 run :: Vty -> State (Root (Module SrcSpanInfo)) -> IO ()
-run vty state = do
-  runMaybeT $ flip runReaderT vty $ runEditorMode state
-  return ()
+run vty = void . runMaybeT . flip runReaderT vty . eitherT return absurd . runEditorMode
 
 loadState :: [String] -> IO ((Int, Int) -> State (Root (Module SrcSpanInfo)))
 loadState [filename] = do
