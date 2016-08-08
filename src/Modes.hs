@@ -27,6 +27,7 @@ import Language.Haskell.Exts.Prisms
 
 import Pretty
 import View
+import HZipper
 
 data State h =
   State {
