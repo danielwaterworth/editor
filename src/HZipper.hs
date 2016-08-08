@@ -14,6 +14,36 @@ data HList (r :: [*]) where
   HNil  :: HList '[]
   HCons :: e -> HList x -> HList (e ': x)
 
+h2 :: Iso (HList [a, b]) (HList [p, q]) (a, b) (p, q)
+h2 =
+  iso
+    (\(HCons a (HCons b HNil)) -> (a, b))
+    (\(a, b) -> HCons a (HCons b HNil))
+
+h3 :: Iso (HList [a, b, c]) (HList [x, y, z]) (a, b, c) (x, y, z)
+h3 =
+  iso
+    (\(HCons a (HCons b (HCons c HNil))) -> (a, b, c))
+    (\(x, y, z) -> HCons x (HCons y (HCons z HNil)))
+
+h4 :: Iso (HList [a, b, c, d]) (HList [u, v, w, x]) (a, b, c, d) (u, v, w, x)
+h4 =
+  iso
+    (\(HCons a (HCons b (HCons c (HCons d HNil)))) -> (a, b, c, d))
+    (\(u, v, w, x) -> HCons u (HCons v (HCons w (HCons x HNil))))
+
+h5 :: Iso (HList [a, b, c, d, e]) (HList [u, v, w, x, y]) (a, b, c, d, e) (u, v, w, x, y)
+h5 =
+  iso
+    (\(HCons a (HCons b (HCons c (HCons d (HCons e HNil))))) -> (a, b, c, d, e))
+    (\(u, v, w, x, y) -> HCons u (HCons v (HCons w (HCons x (HCons y HNil)))))
+
+h6 :: Iso (HList [a, b, c, d, e, f]) (HList [u, v, w, x, y, z]) (a, b, c, d, e, f) (u, v, w, x, y, z)
+h6 =
+  iso
+    (\(HCons a (HCons b (HCons c (HCons d (HCons e (HCons f HNil)))))) -> (a, b, c, d, e, f))
+    (\(u, v, w, x, y, z) -> HCons u (HCons v (HCons w (HCons x (HCons y (HCons z HNil))))))
+
 type family A x where
   A (HZipper z '[] r x) = HList (x ': r)
 
