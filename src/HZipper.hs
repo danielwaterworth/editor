@@ -76,6 +76,16 @@ instance LeftMost (HZipper z ls (x ': r) l) => LeftMost (HZipper z (l ': ls) r x
 
   leftmost = leftmost . hLeftward
 
+instance Rooted z => Rooted (HZipper z '[] r x) where
+  type RootedAt (HZipper z '[] r x) = RootedAt z
+
+instance
+      (LeftMost (HZipper z ls (x ': r) l),
+      Ascend (LeftMostT (HZipper z ls (x ': r) l)),
+      Rooted (BuildsOn (LeftMostT (HZipper z ls (x ': r) l)))) =>
+      Rooted (HZipper z (l ': ls) r x) where
+    type RootedAt (HZipper z (l ': ls) r x) = RootedAt (BuildsOn (LeftMostT (HZipper z ls (x ': r) l)))
+
 instance Focused (HZipper z l r x) where
   type FocusedAt (HZipper z l r x) = x
 
