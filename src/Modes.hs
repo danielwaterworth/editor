@@ -13,6 +13,7 @@ import Data.List (intercalate)
 import Control.Lens
 
 import Control.Applicative
+import Data.Void
 
 import Control.Monad (void)
 import Control.Monad.Reader (MonadReader, ask, runReaderT)
