@@ -109,6 +109,10 @@ extra-deps:
 - void-0.7.1
 - vty-5.7.1
 - either-4.4.1.1
+- MonadRandom-0.4.2.3
+- mmorph-1.0.6
+- monad-control-1.0.1.0
+- transformers-base-0.4.4
 
 # Override default flag values for local packages and extra-deps
 flags: {}
