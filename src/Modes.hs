@@ -17,7 +17,7 @@ import Data.Void
 
 import Control.Monad (void, forever)
 import Control.Monad.Reader (MonadReader, ask, runReaderT)
-import Control.Monad.State (execStateT, runStateT, StateT, MonadState, get, put, evalStateT)
+import Control.Monad.State (execStateT, runStateT, StateT(..), MonadState, get, put, evalStateT)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Trans.Maybe (runMaybeT, MaybeT)
 import Control.Monad (MonadPlus, mzero)
