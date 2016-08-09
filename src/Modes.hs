@@ -144,7 +144,7 @@ generatePicture = do
   image <- modeOverlay
   return $ (generateView (0, 0) height $ lines src) `addToTop` image
 
-handleNextKeyEvent :: (MMonad z m, EditorMode z) => StateT (EitherT (State (BuildsOn z))) m ()
+handleNextKeyEvent :: (MMonad z m, EditorMode z) => StateT (EitherT (State (BuildsOn z)) m) ()
 handleNextKeyEvent =
   nextKeyEvent >>= juggle handleKeyEvent
 
