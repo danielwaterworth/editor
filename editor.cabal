@@ -29,6 +29,7 @@ library
                      , syb-with-class
                      , template-haskell
                      , constraints
+                     , either
   default-language:    Haskell2010
 
 executable e
