@@ -26,6 +26,7 @@ import Control.Lens
 import Control.Zipper.Simple
 
 import HZipper
+import UnfocusedListZipper
 
 class (Applicative m, Monad m, MonadError String m) => Printer m where
   s :: String -> m ()
@@ -73,6 +74,9 @@ instance (Pretty z) => Pretty (z ==> a) where
   pretty = pretty . ascend
 
 instance (Ascend (HZipper z l r x), Pretty (BuildsOn (HZipper z l r x))) => Pretty (HZipper z l r x) where
+  pretty = pretty . ascend
+
+instance (Pretty z) => Pretty (z =%=> a) where
   pretty = pretty . ascend
 
 instance Pretty (Module ()) where

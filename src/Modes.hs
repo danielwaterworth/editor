@@ -35,6 +35,7 @@ import Pretty
 import View
 import HZipper
 import TaggedZipper
+import UnfocusedListZipper
 import Printer
 
 instance Wrapped (ModuleHead l) where
@@ -143,7 +144,7 @@ instance (
   handleKeyEvent (KChar 'X', []) s =
     return $ Right $ set (zipper . focus) Nothing s
   handleKeyEvent (KChar 'M', []) s =
-    return $ Right $ set (zipper . focus) (Just (ModuleHead () (ModuleName () "Foo") Nothing Nothing)) s
+    return $ Right $ set (zipper . focus) (Just (ModuleHead () (ModuleName () "") Nothing Nothing)) s
   handleKeyEvent e s = do
     liftIO $ print $ "unknown key event type " ++ show e
     return $ Right s
@@ -180,6 +181,8 @@ instance (
   handleKeyEvent (KChar 'q', []) _ = mzero
   handleKeyEvent (KChar 't', []) s =
     return $ Left $ over zipper (ascend . ascend) s
+  handleKeyEvent (KChar 'h', []) s =
+    Right <$> runEditorMode (over zipper (hRightward . descendHList . descendLens (_Wrapped' . from h2)) s)
   handleKeyEvent e s = do
     liftIO $ print $ "unknown key event type " ++ show e
     return $ Right s
@@ -187,6 +190,46 @@ instance (
   modeOverlay = do
     height <- use (bounds . _2)
     return $ translateY (height - 1) $ string defAttr "ModuleName"
+
+instance (
+      Pretty z,
+      Ascend (HZipper (z ==> x) l r String),
+      BuildsOn (HZipper (z ==> x) l r String) ~ (z ==> x)
+    ) =>
+      EditorMode (HZipper (z ==> x) l r String)
+    where
+  type ParentMode (HZipper (z ==> x) l r String) = z
+
+  handleKeyEvent (KChar 'q', []) _ = mzero
+  handleKeyEvent (KChar 't', []) s =
+    return $ Left $ over zipper (ascend . ascend) s
+  handleKeyEvent (KChar 'E', []) s =
+    Right <$> runEditorMode (over zipper descendUList s)
+  handleKeyEvent e s = do
+    liftIO $ print $ "unknown key event type " ++ show e
+    return $ Right s
+
+  modeOverlay = do
+    height <- use (bounds . _2)
+    return $ translateY (height - 1) $ string defAttr "String"
+
+instance Pretty z => EditorMode (z =%=> Char) where
+  type ParentMode (z =%=> Char) = z
+
+  handleKeyEvent (KChar 'q', [MCtrl]) _ = mzero
+  handleKeyEvent (KChar 't', [MCtrl]) s =
+    return $ Left $ over zipper ascend s
+  handleKeyEvent (KBS, []) s =
+    return $ Right $ over zipper backspace s
+  handleKeyEvent (KChar c, []) s =
+    return $ Right $ over zipper (insert c) s
+  handleKeyEvent e s = do
+    liftIO $ print $ "unknown key event type " ++ show e
+    return $ Right s
+
+  modeOverlay = do
+    height <- use (bounds . _2)
+    return $ translateY (height - 1) $ string defAttr "Char"
 
 type InEditorMode z m = (MMonad z m, EditorMode z, MonadState (State z) m)
 
