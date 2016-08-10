@@ -14,7 +14,7 @@ generateView (x, y) height lines =
 
     lineNumWidth = length (show numLines)
     lineNumStyle = defAttr `withStyle` bold `withForeColor` yellow
-    lineNumbers = foldr1 (<->) $ map (string lineNumStyle . showN lineNumWidth) [1..numLines]
+    lineNumbers = horizCat $ map (string lineNumStyle . showN lineNumWidth) [1..numLines]
 
     text = vertCat $ map (\x -> string defAttr " " <|> string defAttr x) lines
     image = lineNumbers <|> text

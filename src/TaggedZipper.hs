@@ -10,24 +10,24 @@ import Control.Lens
 import Control.Lens.TH
 import Control.Zipper.Simple
 
-data TaggedZipper z t =
+data TaggedZipper t z =
   TaggedZipper { untag :: z }
 makeWrapped ''TaggedZipper
 
-tag :: Proxy t -> z -> TaggedZipper z t
+tag :: Proxy t -> z -> TaggedZipper t z
 tag _ = TaggedZipper
 
-instance Ascend z => Ascend (TaggedZipper z t) where
-  type BuildsOn (TaggedZipper z t) = BuildsOn z
+instance Ascend z => Ascend (TaggedZipper t z) where
+  type BuildsOn (TaggedZipper t z) = BuildsOn z
 
   ascend = ascend . untag
 
-instance Rooted z => Rooted (TaggedZipper z t) where
-  type RootedAt (TaggedZipper z t) = RootedAt z
+instance Rooted z => Rooted (TaggedZipper t z) where
+  type RootedAt (TaggedZipper t z) = RootedAt z
 
   rezip = rezip . untag
 
-instance Focused z => Focused (TaggedZipper z t) where
-  type FocusedAt (TaggedZipper z t) = FocusedAt z
+instance Focused z => Focused (TaggedZipper t z) where
+  type FocusedAt (TaggedZipper t z) = FocusedAt z
 
-  focus = (_Unwrapped :: Iso' z (TaggedZipper z t)) . focus
+  focus = (_Unwrapped :: Iso' z (TaggedZipper t z)) . focus

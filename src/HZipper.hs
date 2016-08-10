@@ -7,6 +7,8 @@
 {-# LANGUAGE UndecidableInstances #-}
 module HZipper where
 
+import Data.Proxy
+
 import Control.Lens
 import Control.Zipper.Simple
 
@@ -80,11 +82,14 @@ instance Rooted z => Rooted (HZipper z '[] r x) where
   type RootedAt (HZipper z '[] r x) = RootedAt z
 
 instance
-      (LeftMost (HZipper z ls (x ': r) l),
-      Ascend (LeftMostT (HZipper z ls (x ': r) l)),
-      Rooted (BuildsOn (LeftMostT (HZipper z ls (x ': r) l)))) =>
+    (
+      Rooted z,
+      LeftMost (HZipper z ls (x : r) l),
+      Ascend (LeftMostT (HZipper z ls (x : r) l)),
+      BuildsOn (LeftMostT (HZipper z ls (x : r) l)) ~ z
+    ) =>
       Rooted (HZipper z (l ': ls) r x) where
-    type RootedAt (HZipper z (l ': ls) r x) = RootedAt (BuildsOn (LeftMostT (HZipper z ls (x ': r) l)))
+  type RootedAt (HZipper z (l ': ls) r x) = RootedAt z
 
 instance Focused (HZipper z l r x) where
   type FocusedAt (HZipper z l r x) = x
@@ -97,8 +102,12 @@ instance Ascend (HZipper z '[] r x) where
   ascend (HZipper f _ r x) = f $ HCons x r
 
 instance
-    (LeftMost (HZipper z ls (x ': r) l), Ascend (LeftMostT (HZipper z ls (x ': r) l))) =>
-    Ascend (HZipper z (l ': ls) r x) where
-  type BuildsOn (HZipper z (l ': ls) r x) = BuildsOn (LeftMostT (HZipper z ls (x ': r) l))
+    (
+      LeftMost (HZipper z ls (x ': r) l),
+      Ascend (LeftMostT (HZipper z ls (x ': r) l)),
+      BuildsOn (LeftMostT (HZipper z ls (x ': r) l)) ~ z
+    ) =>
+      Ascend (HZipper z (l ': ls) r x) where
+  type BuildsOn (HZipper z (l ': ls) r x) = z
 
   ascend = ascend . leftmost

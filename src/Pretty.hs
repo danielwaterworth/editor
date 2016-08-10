@@ -7,7 +7,8 @@
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-
+{-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE UndecidableInstances #-}
 module Pretty where
 
 import Language.Haskell.Exts hiding (Pretty, pretty)
@@ -23,6 +24,8 @@ import Control.Monad (when, guard)
 import Control.Monad.Except (MonadError, throwError)
 import Control.Lens
 import Control.Zipper.Simple
+
+import HZipper
 
 class (Applicative m, Monad m, MonadError String m) => Printer m where
   s :: String -> m ()
@@ -62,6 +65,15 @@ instance {-# OVERLAPPABLE #-} Typeable a => Pretty a where
 
 instance Pretty () where
   pretty = return
+
+instance Pretty a => Pretty (Root a) where
+  pretty = pretty . rezip
+
+instance (Pretty z) => Pretty (z ==> a) where
+  pretty = pretty . ascend
+
+instance (Ascend (HZipper z l r x), Pretty (BuildsOn (HZipper z l r x))) => Pretty (HZipper z l r x) where
+  pretty = pretty . ascend
 
 instance Pretty (Module ()) where
   pretty x =
