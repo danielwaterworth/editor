@@ -62,16 +62,6 @@ data State h =
   }
 makeLenses ''State
 
-fromRight :: Either a b -> b
-fromRight (Right x) = x
-fromRight _ = error "fromRight"
-
-tug :: (a -> Maybe a) -> a -> a
-tug f x =
-  case f x of
-    Nothing -> x
-    Just x' -> x'
-
 type MMonad m = (
     MonadIO m,
     MonadPlus m,
