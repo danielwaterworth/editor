@@ -124,12 +124,14 @@ instance Pretty z => EditorMode (z ==> C_Module ()) where
 
 instance (
       Pretty z,
-      Ascend (HZipper (z ==> x) l r (Maybe (ModuleHead ()))),
-      BuildsOn (HZipper (z ==> x) l r (Maybe (ModuleHead ()))) ~ (z ==> x)
+      Ascend (HZipper (z ==> x) l ([ModulePragma ()] ': r) (Maybe (ModuleHead ()))),
+      Ascend (HZipper (z ==> x) (Maybe (ModuleHead ()) ': l) r [ModulePragma ()]),
+      BuildsOn (HZipper (z ==> x) l ([ModulePragma ()] ': r) (Maybe (ModuleHead ()))) ~ (z ==> x),
+      BuildsOn (HZipper (z ==> x) (Maybe (ModuleHead ()) ': l) r [ModulePragma ()]) ~ (z ==> x)
     ) =>
-      EditorMode (HZipper (z ==> x) l r (Maybe (ModuleHead ())))
+      EditorMode (HZipper (z ==> x) l ([ModulePragma ()] ': r) (Maybe (ModuleHead ())))
     where
-  type ParentMode (HZipper (z ==> x) l r (Maybe (ModuleHead ()))) = z
+  type ParentMode (HZipper (z ==> x) l ([ModulePragma ()] ': r) (Maybe (ModuleHead ()))) = z
 
   handleKeyEvent (KChar 'q', []) _ = mzero
   handleKeyEvent (KChar 't', []) s =
@@ -141,6 +143,8 @@ instance (
         Nothing -> do
           liftIO $ print "Can't descend into Nothing"
           return s
+  handleKeyEvent (KChar 's', []) s = do
+    Left <$> runEditorMode (over zipper hRightward s)
   handleKeyEvent (KChar 'X', []) s =
     return $ Right $ set (zipper . focus) Nothing s
   handleKeyEvent (KChar 'M', []) s =
@@ -152,6 +156,30 @@ instance (
   modeOverlay = do
     height <- use (bounds . _2)
     return $ translateY (height - 1) $ string defAttr "ModuleHead"
+
+instance (
+      Pretty z,
+      Ascend (HZipper (z ==> x) l ([ModulePragma ()] ': r) (Maybe (ModuleHead ()))),
+      Ascend (HZipper (z ==> x) (Maybe (ModuleHead ()) ': l) r [ModulePragma ()]),
+      BuildsOn (HZipper (z ==> x) l ([ModulePragma ()] ': r) (Maybe (ModuleHead ()))) ~ (z ==> x),
+      BuildsOn (HZipper (z ==> x) (Maybe (ModuleHead ()) ': l) r [ModulePragma ()]) ~ (z ==> x)
+    ) =>
+      EditorMode (HZipper (z ==> x) (Maybe (ModuleHead ()) ': l) r [ModulePragma ()])
+    where
+  type ParentMode (HZipper (z ==> x) (Maybe (ModuleHead ()) ': l) r [ModulePragma ()]) = z
+
+  handleKeyEvent (KChar 'q', []) _ = mzero
+  handleKeyEvent (KChar 't', []) s =
+    return $ Left $ over zipper (ascend . ascend) s
+  handleKeyEvent (KChar 'n', []) s =
+    Left <$> runEditorMode (over zipper hLeftward s)
+  handleKeyEvent e s = do
+    liftIO $ print $ "unknown key event type " ++ show e
+    return $ Right s
+
+  modeOverlay = do
+    height <- use (bounds . _2)
+    return $ translateY (height - 1) $ string defAttr "ModulePragmas"
 
 instance Pretty z => EditorMode (z ==> ModuleHead ()) where
   type ParentMode (z ==> ModuleHead ()) = z
