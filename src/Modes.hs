@@ -72,53 +72,66 @@ tug f x =
     Nothing -> x
     Just x' -> x'
 
-type MMonad z m = (
-    Pretty z,
+type MMonad m = (
     MonadIO m,
     MonadPlus m,
     MonadReader Vty m
   )
 
-class EditorMode z where
-  type ParentMode z
+type ParentState mode = State (ParentMode mode)
 
-  handleKeyEvent :: MMonad z m => (Key, [Modifier]) -> State z -> m (Either (State (ParentMode z)) (State z))
+class EditorMode mode where
+  type ParentMode mode
+  type Zipper mode
 
-  modeOverlay :: (MMonad z m, MonadState (State z) m) => m Image
+  handleKeyEvent :: MMonad m => Proxy mode -> (Key, [Modifier]) -> State (Zipper mode) -> m (Either (ParentState mode) (State (Zipper mode)))
+
+  modeOverlay :: (MMonad m, MonadState (State (Zipper mode)) m) => Proxy mode -> m Image
 
 instance EditorMode (Root (Module ())) where
   type ParentMode (Root (Module ())) = Void
+  type Zipper (Root (Module ())) = Root (Module ())
 
-  handleKeyEvent (KChar 'q', []) _ = mzero
-  handleKeyEvent (KChar 'h', []) s =
+  handleKeyEvent _ (KChar 'q', []) _ = mzero
+  handleKeyEvent _ (KChar 'h', []) s =
     Right <$>
       case descendPrism _Module' $ view zipper s of
         Just z ->
-          runEditorMode $ set zipper z s
+          runEditorMode (Proxy :: Proxy (Root (Module ()) ==> C_Module ())) $ set zipper z s
         Nothing -> do
           liftIO $ print "Wrong type of module"
           return s
-  handleKeyEvent e s = do
+  handleKeyEvent _ e s = do
     liftIO $ print $ "unknown key event type " ++ show e
     return $ Right s
 
-  modeOverlay = do
+  modeOverlay _ = do
     height <- use (bounds . _2)
     return $ translateY (height - 1) $ string defAttr "Module"
 
 instance Pretty z => EditorMode (z ==> C_Module ()) where
   type ParentMode (z ==> C_Module ()) = z
+  type Zipper (z ==> C_Module ()) = z ==> C_Module ()
 
-  handleKeyEvent (KChar 'q', []) _ = mzero
-  handleKeyEvent (KChar 't', []) s =
+  handleKeyEvent _ (KChar 'q', []) _ = mzero
+  handleKeyEvent _ (KChar 't', []) s =
     return $ Left $ over zipper ascend s
-  handleKeyEvent (KChar 'h', []) s =
-    Right <$> runEditorMode (over zipper (hRightward . descendHList . descendLens (_Wrapped . from h5)) s)
-  handleKeyEvent e s = do
+  handleKeyEvent _ (KChar 'h', []) s =
+    Right <$>
+      runEditorMode
+        (Proxy ::
+          Proxy
+            (HZipper
+              (z ==> C_Module () ==> HList '[(), Maybe (ModuleHead ()), [ModulePragma ()], [ImportDecl ()], [Decl ()]])
+              '[()]
+              '[[ModulePragma ()], [ImportDecl ()], [Decl ()]]
+              (Maybe (ModuleHead ()))))
+        (over zipper (hRightward . descendHList . descendLens (_Wrapped . from h5)) s)
+  handleKeyEvent _ e s = do
     liftIO $ print $ "unknown key event type " ++ show e
     return $ Right s
 
-  modeOverlay = do
+  modeOverlay _ = do
     height <- use (bounds . _2)
     return $ translateY (height - 1) $ string defAttr "Haskell Module"
 
@@ -132,28 +145,38 @@ instance (
       EditorMode (HZipper (z ==> x) l ([ModulePragma ()] ': r) (Maybe (ModuleHead ())))
     where
   type ParentMode (HZipper (z ==> x) l ([ModulePragma ()] ': r) (Maybe (ModuleHead ()))) = z
+  type Zipper (HZipper (z ==> x) l ([ModulePragma ()] ': r) (Maybe (ModuleHead ()))) = HZipper (z ==> x) l ([ModulePragma ()] ': r) (Maybe (ModuleHead ()))
 
-  handleKeyEvent (KChar 'q', []) _ = mzero
-  handleKeyEvent (KChar 't', []) s =
+  handleKeyEvent _ (KChar 'q', []) _ = mzero
+  handleKeyEvent _ (KChar 't', []) s =
     return $ Left $ over zipper (ascend . ascend) s
-  handleKeyEvent (KChar 'h', []) s =
+  handleKeyEvent _ (KChar 'h', []) s =
     Right <$>
       case descendPrism _Just $ view zipper s of
-        Just z -> runEditorMode $ set zipper z s
+        Just z ->
+          runEditorMode
+            (Proxy ::
+              Proxy
+                (HZipper (z ==> x) l ([ModulePragma ()] ': r) (Maybe (ModuleHead ())) ==>
+                  ModuleHead ()))
+            (set zipper z s)
         Nothing -> do
           liftIO $ print "Can't descend into Nothing"
           return s
-  handleKeyEvent (KChar 's', []) s = do
-    Left <$> runEditorMode (over zipper hRightward s)
-  handleKeyEvent (KChar 'X', []) s =
+  handleKeyEvent _ (KChar 's', []) s = do
+    Left <$>
+      runEditorMode
+        (Proxy :: Proxy (HZipper (z ==> x) (Maybe (ModuleHead ()) ': l) r [ModulePragma ()]))
+        (over zipper hRightward s)
+  handleKeyEvent _ (KChar 'X', []) s =
     return $ Right $ set (zipper . focus) Nothing s
-  handleKeyEvent (KChar 'M', []) s =
+  handleKeyEvent _ (KChar 'M', []) s =
     return $ Right $ set (zipper . focus) (Just (ModuleHead () (ModuleName () "") Nothing Nothing)) s
-  handleKeyEvent e s = do
+  handleKeyEvent _ e s = do
     liftIO $ print $ "unknown key event type " ++ show e
     return $ Right s
 
-  modeOverlay = do
+  modeOverlay _ = do
     height <- use (bounds . _2)
     return $ translateY (height - 1) $ string defAttr "ModuleHead"
 
@@ -167,33 +190,47 @@ instance (
       EditorMode (HZipper (z ==> x) (Maybe (ModuleHead ()) ': l) r [ModulePragma ()])
     where
   type ParentMode (HZipper (z ==> x) (Maybe (ModuleHead ()) ': l) r [ModulePragma ()]) = z
+  type Zipper (HZipper (z ==> x) (Maybe (ModuleHead ()) ': l) r [ModulePragma ()]) = (HZipper (z ==> x) (Maybe (ModuleHead ()) ': l) r [ModulePragma ()])
 
-  handleKeyEvent (KChar 'q', []) _ = mzero
-  handleKeyEvent (KChar 't', []) s =
+  handleKeyEvent _ (KChar 'q', []) _ = mzero
+  handleKeyEvent _ (KChar 't', []) s =
     return $ Left $ over zipper (ascend . ascend) s
-  handleKeyEvent (KChar 'n', []) s =
-    Left <$> runEditorMode (over zipper hLeftward s)
-  handleKeyEvent e s = do
+  handleKeyEvent _ (KChar 'n', []) s =
+    Left <$>
+      runEditorMode
+        (Proxy :: Proxy (HZipper (z ==> x) l ([ModulePragma ()] ': r) (Maybe (ModuleHead ()))))
+        (over zipper hLeftward s)
+  handleKeyEvent _ e s = do
     liftIO $ print $ "unknown key event type " ++ show e
     return $ Right s
 
-  modeOverlay = do
+  modeOverlay _ = do
     height <- use (bounds . _2)
     return $ translateY (height - 1) $ string defAttr "ModulePragmas"
 
 instance Pretty z => EditorMode (z ==> ModuleHead ()) where
   type ParentMode (z ==> ModuleHead ()) = z
+  type Zipper (z ==> ModuleHead ()) = (z ==> ModuleHead ())
 
-  handleKeyEvent (KChar 'q', []) _ = mzero
-  handleKeyEvent (KChar 't', []) s =
+  handleKeyEvent _ (KChar 'q', []) _ = mzero
+  handleKeyEvent _ (KChar 't', []) s =
     return $ Left $ over zipper ascend s
-  handleKeyEvent (KChar 'h', []) s =
-    Right <$> runEditorMode (over zipper (hRightward . descendHList . descendLens (_Wrapped' . from h4)) s)
-  handleKeyEvent e s = do
+  handleKeyEvent _ (KChar 'h', []) s =
+    Right <$>
+      runEditorMode
+        (Proxy ::
+          Proxy
+            (HZipper
+              (z ==> ModuleHead () ==> HList _)
+              _
+              _
+              (ModuleName ())))
+        (over zipper (hRightward . descendHList . descendLens (_Wrapped' . from h4)) s)
+  handleKeyEvent _ e s = do
     liftIO $ print $ "unknown key event type " ++ show e
     return $ Right s
 
-  modeOverlay = do
+  modeOverlay _ = do
     height <- use (bounds . _2)
     return $ translateY (height - 1) $ string defAttr "Just ModuleHead"
 
@@ -205,17 +242,27 @@ instance (
       EditorMode (HZipper (z ==> x) l r (ModuleName ()))
     where
   type ParentMode (HZipper (z ==> x) l r (ModuleName ())) = z
+  type Zipper (HZipper (z ==> x) l r (ModuleName ())) = (HZipper (z ==> x) l r (ModuleName ()))
 
-  handleKeyEvent (KChar 'q', []) _ = mzero
-  handleKeyEvent (KChar 't', []) s =
+  handleKeyEvent _ (KChar 'q', []) _ = mzero
+  handleKeyEvent _ (KChar 't', []) s =
     return $ Left $ over zipper (ascend . ascend) s
-  handleKeyEvent (KChar 'h', []) s =
-    Right <$> runEditorMode (over zipper (hRightward . descendHList . descendLens (_Wrapped' . from h2)) s)
-  handleKeyEvent e s = do
+  handleKeyEvent _ (KChar 'h', []) s =
+    Right <$>
+      runEditorMode
+        (Proxy ::
+          Proxy
+            (HZipper
+              (HZipper (z ==> x) l r (ModuleName ()) ==> HList '[(), String])
+              '[()]
+              '[]
+              String))
+        (over zipper (hRightward . descendHList . descendLens (_Wrapped' . from h2)) s)
+  handleKeyEvent _ e s = do
     liftIO $ print $ "unknown key event type " ++ show e
     return $ Right s
 
-  modeOverlay = do
+  modeOverlay _ = do
     height <- use (bounds . _2)
     return $ translateY (height - 1) $ string defAttr "ModuleName"
 
@@ -227,86 +274,91 @@ instance (
       EditorMode (HZipper (z ==> x) l r String)
     where
   type ParentMode (HZipper (z ==> x) l r String) = z
+  type Zipper (HZipper (z ==> x) l r String) = (HZipper (z ==> x) l r String)
 
-  handleKeyEvent (KChar 'q', []) _ = mzero
-  handleKeyEvent (KChar 't', []) s =
+  handleKeyEvent _ (KChar 'q', []) _ = mzero
+  handleKeyEvent _ (KChar 't', []) s =
     return $ Left $ over zipper (ascend . ascend) s
-  handleKeyEvent (KChar 'E', []) s =
-    Right <$> runEditorMode (over zipper descendUList s)
-  handleKeyEvent e s = do
+  handleKeyEvent _ (KChar 'E', []) s =
+    Right <$>
+      runEditorMode
+        (Proxy :: Proxy (HZipper (z ==> x) l r String =%=> Char))
+        (over zipper descendUList s)
+  handleKeyEvent _ e s = do
     liftIO $ print $ "unknown key event type " ++ show e
     return $ Right s
 
-  modeOverlay = do
+  modeOverlay _ = do
     height <- use (bounds . _2)
     return $ translateY (height - 1) $ string defAttr "String"
 
 instance Pretty z => EditorMode (z =%=> Char) where
   type ParentMode (z =%=> Char) = z
+  type Zipper (z =%=> Char) = (z =%=> Char)
 
-  handleKeyEvent (KChar 'q', [MCtrl]) _ = mzero
-  handleKeyEvent (KChar 't', [MCtrl]) s =
+  handleKeyEvent _ (KChar 'q', [MCtrl]) _ = mzero
+  handleKeyEvent _ (KChar 't', [MCtrl]) s =
     return $ Left $ over zipper ascend s
-  handleKeyEvent (KBS, []) s =
+  handleKeyEvent _ (KBS, []) s =
     return $ Right $ over zipper backspace s
-  handleKeyEvent (KChar c, []) s =
+  handleKeyEvent _ (KChar c, []) s =
     return $ Right $ over zipper (insert c) s
-  handleKeyEvent e s = do
+  handleKeyEvent _ e s = do
     liftIO $ print $ "unknown key event type " ++ show e
     return $ Right s
 
-  modeOverlay = do
+  modeOverlay _ = do
     height <- use (bounds . _2)
     return $ translateY (height - 1) $ string defAttr "Char"
 
-type InEditorMode z m = (MMonad z m, EditorMode z, MonadState (State z) m)
+type InEditorMode z m = (MMonad m, EditorMode z, MonadState (State (Zipper z)) m)
 
-nextKeyEvent :: InEditorMode z m => m (Key, [Modifier])
-nextKeyEvent = do
+nextKeyEvent :: (Pretty (Zipper z), InEditorMode z m) => Proxy z -> m (Key, [Modifier])
+nextKeyEvent proxy = do
   vty <- ask
   e <- liftIO $ nextEvent vty
   case e of
     EvKey k m -> return (k, m)
     EvResize width height -> do
       bounds .= (width, height)
-      picture <- generatePicture
+      picture <- generatePicture proxy
       liftIO $ update vty picture
-      nextKeyEvent
+      nextKeyEvent proxy
     _ -> do
       liftIO $ print ("unknown event type " ++ show e)
-      nextKeyEvent
+      nextKeyEvent proxy
 
-generatePicture :: InEditorMode z m => m Picture
-generatePicture = do
+generatePicture :: (Pretty (Zipper z), InEditorMode z m) => Proxy z -> m Picture
+generatePicture proxy = do
   height <- use (bounds . _2)
   z <- use zipper
   case prettyPrint z of
     Right src -> do
-      image <- modeOverlay
+      image <- modeOverlay proxy
       return $ (generateView (0, 0) height $ lines src) `addToTop` image
     Left err ->
       return $ picForImage $ string defAttr err
 
-handleNextKeyEvent :: (MMonad z m, EditorMode z) => State z -> m (Either (State (ParentMode z)) (State z))
-handleNextKeyEvent state =
-  flip runStateT state nextKeyEvent >>= uncurry handleKeyEvent
+handleNextKeyEvent :: (Pretty (Zipper z), MMonad m, EditorMode z) => Proxy z -> State (Zipper z) -> m (Either (ParentState z) (State (Zipper z)))
+handleNextKeyEvent proxy state =
+  flip runStateT state (nextKeyEvent proxy) >>= uncurry (handleKeyEvent proxy)
 
-runEditorMode :: (MMonad z m, EditorMode z) => State z -> m (State (ParentMode z))
-runEditorMode state = do
+runEditorMode :: (Pretty (Zipper z), MMonad m, EditorMode z) => Proxy z -> State (Zipper z) -> m (ParentState z)
+runEditorMode proxy state = do
   vty <- ask
   state' <-
     flip execStateT state $ do
-      pic <- generatePicture
+      pic <- generatePicture proxy
       liftIO $ update vty pic
 
-  state'' <- handleNextKeyEvent state'
+  state'' <- handleNextKeyEvent proxy state'
   case state'' of
     Left x -> return x
-    Right state''' -> runEditorMode state'''
+    Right state''' -> runEditorMode proxy state'''
 
 run :: Vty -> State (Root (Module ())) -> IO ()
 run vty state = do
-  runMaybeT $ flip runReaderT vty $ runEditorMode state
+  runMaybeT $ flip runReaderT vty $ runEditorMode (Proxy :: Proxy (Root (Module ()))) state
   return ()
 
 loadState :: [String] -> IO ((Int, Int) -> State (Root (Module ())))
