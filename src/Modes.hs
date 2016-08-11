@@ -8,6 +8,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE PartialTypeSignatures #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE GADTs #-}
 module Modes where
 
 import Data.Char (isDigit)
@@ -74,9 +75,9 @@ class EditorMode mode where
   type ParentMode mode
   type Zipper mode
 
-  handleKeyEvent :: (EditorMode (ParentMode mode), MMonad m) => Proxy mode -> (Key, [Modifier]) -> State (Zipper mode) -> m (Either (ParentState mode) (State (Zipper mode)))
+  handleKeyEvent :: (EditorMode (ParentMode mode), MMonad m) => mode -> (Key, [Modifier]) -> State (Zipper mode) -> m (Either (ParentState mode) (State (Zipper mode)))
 
-  modeOverlay :: (MMonad m, MonadState (State (Zipper mode)) m) => Proxy mode -> m Image
+  modeOverlay :: (MMonad m, MonadState (State (Zipper mode)) m) => mode -> m Image
 
 instance EditorMode Void where
   type ParentMode Void = Void
@@ -85,16 +86,18 @@ instance EditorMode Void where
   handleKeyEvent = undefined
   modeOverlay = undefined
 
-instance EditorMode (Root (Module ())) where
-  type ParentMode (Root (Module ())) = Void
-  type Zipper (Root (Module ())) = Root (Module ())
+data RootMode = RootMode
+
+instance EditorMode RootMode where
+  type ParentMode RootMode = Void
+  type Zipper RootMode = Root (Module ())
 
   handleKeyEvent _ (KChar 'q', []) _ = mzero
   handleKeyEvent _ (KChar 'h', []) s =
     Right <$>
       case descendPrism _Module' $ view zipper s of
         Just z ->
-          runEditorMode (Proxy :: Proxy (Root (Module ()) ==> C_Module ())) $ set zipper z s
+          runEditorMode (HaskellModuleMode RootMode) $ set zipper z s
         Nothing -> do
           liftIO $ print "Wrong type of module"
           return s
@@ -106,23 +109,19 @@ instance EditorMode (Root (Module ())) where
     height <- use (bounds . _2)
     return $ translateY (height - 1) $ string defAttr "Module"
 
-instance (EditorMode z, Zipper z ~ z, Pretty z) => EditorMode (z ==> C_Module ()) where
-  type ParentMode (z ==> C_Module ()) = z
-  type Zipper (z ==> C_Module ()) = z ==> C_Module ()
+data HaskellModuleMode mode = HaskellModuleMode mode
+
+instance (EditorMode mode, Pretty (Zipper mode)) => EditorMode (HaskellModuleMode mode) where
+  type ParentMode (HaskellModuleMode mode) = mode
+  type Zipper (HaskellModuleMode mode) = Zipper mode ==> C_Module ()
 
   handleKeyEvent _ (KChar 'q', []) _ = mzero
   handleKeyEvent _ (KChar 't', []) s =
     return $ Left $ over zipper ascend s
-  handleKeyEvent _ (KChar 'h', []) s =
+  handleKeyEvent mode (KChar 'h', []) s =
     Right <$>
       runEditorMode
-        (Proxy ::
-          Proxy
-            (HZipper
-              (z ==> C_Module () ==> HList '[(), Maybe (ModuleHead ()), [ModulePragma ()], [ImportDecl ()], [Decl ()]])
-              '[()]
-              '[[ModulePragma ()], [ImportDecl ()], [Decl ()]]
-              (Maybe (ModuleHead ()))))
+        (MaybeModuleHeadMode mode)
         (over zipper (hRightward . descendHList . descendLens (_Wrapped . from h5)) s)
   handleKeyEvent _ e s = do
     liftIO $ print $ "unknown key event type " ++ show e
@@ -132,41 +131,29 @@ instance (EditorMode z, Zipper z ~ z, Pretty z) => EditorMode (z ==> C_Module ()
     height <- use (bounds . _2)
     return $ translateY (height - 1) $ string defAttr "Haskell Module"
 
-instance (
-      EditorMode z,
-      Zipper z ~ z,
-      Pretty z,
-      Ascend (HZipper (z ==> x) l ([ModulePragma ()] ': r) (Maybe (ModuleHead ()))),
-      Ascend (HZipper (z ==> x) (Maybe (ModuleHead ()) ': l) r [ModulePragma ()]),
-      BuildsOn (HZipper (z ==> x) l ([ModulePragma ()] ': r) (Maybe (ModuleHead ()))) ~ (z ==> x),
-      BuildsOn (HZipper (z ==> x) (Maybe (ModuleHead ()) ': l) r [ModulePragma ()]) ~ (z ==> x)
-    ) =>
-      EditorMode (HZipper (z ==> x) l ([ModulePragma ()] ': r) (Maybe (ModuleHead ())))
-    where
-  type ParentMode (HZipper (z ==> x) l ([ModulePragma ()] ': r) (Maybe (ModuleHead ()))) = z
-  type Zipper (HZipper (z ==> x) l ([ModulePragma ()] ': r) (Maybe (ModuleHead ()))) = HZipper (z ==> x) l ([ModulePragma ()] ': r) (Maybe (ModuleHead ()))
+data MaybeModuleHeadMode x (l :: [*]) (r :: [*]) mode where
+  MaybeModuleHeadMode :: (
+      Ascend (HZipper (Zipper mode ==> x) l r (Maybe (ModuleHead ()))),
+      BuildsOn (HZipper (Zipper mode ==> x) l r (Maybe (ModuleHead ()))) ~ (Zipper mode ==> x)
+    ) => mode -> MaybeModuleHeadMode x l r mode
+
+instance (EditorMode mode, Pretty (Zipper mode)) => EditorMode (MaybeModuleHeadMode x l r mode) where
+  type ParentMode (MaybeModuleHeadMode x l r mode) = mode
+  type Zipper (MaybeModuleHeadMode x l r mode) = HZipper (Zipper mode ==> x) l r (Maybe (ModuleHead ()))
 
   handleKeyEvent _ (KChar 'q', []) _ = mzero
-  handleKeyEvent _ (KChar 't', []) s =
+  handleKeyEvent (MaybeModuleHeadMode _) (KChar 't', []) s =
     return $ Left $ over zipper (ascend . ascend) s
-  handleKeyEvent _ (KChar 'h', []) s =
+  handleKeyEvent mode@(MaybeModuleHeadMode _) (KChar 'h', []) s =
     Right <$>
       case descendPrism _Just $ view zipper s of
         Just z ->
           runEditorMode
-            (Proxy ::
-              Proxy
-                (HZipper (z ==> x) l ([ModulePragma ()] ': r) (Maybe (ModuleHead ())) ==>
-                  ModuleHead ()))
+            (ModuleHeadMode mode)
             (set zipper z s)
         Nothing -> do
           liftIO $ print "Can't descend into Nothing"
           return s
-  handleKeyEvent _ (KChar 's', []) s = do
-    Left <$>
-      runEditorMode
-        (Proxy :: Proxy (HZipper (z ==> x) (Maybe (ModuleHead ()) ': l) r [ModulePragma ()]))
-        (over zipper hRightward s)
   handleKeyEvent _ (KChar 'X', []) s =
     return $ Right $ set (zipper . focus) Nothing s
   handleKeyEvent _ (KChar 'M', []) s =
@@ -177,61 +164,21 @@ instance (
 
   modeOverlay _ = do
     height <- use (bounds . _2)
-    return $ translateY (height - 1) $ string defAttr "ModuleHead"
+    return $ translateY (height - 1) $ string defAttr "Maybe Module Head"
 
-instance (
-      EditorMode z,
-      Zipper z ~ z,
-      Pretty z,
-      Ascend (HZipper (z ==> x) l ([ModulePragma ()] ': r) (Maybe (ModuleHead ()))),
-      Ascend (HZipper (z ==> x) (Maybe (ModuleHead ()) ': l) r [ModulePragma ()]),
-      BuildsOn (HZipper (z ==> x) l ([ModulePragma ()] ': r) (Maybe (ModuleHead ()))) ~ (z ==> x),
-      BuildsOn (HZipper (z ==> x) (Maybe (ModuleHead ()) ': l) r [ModulePragma ()]) ~ (z ==> x)
-    ) =>
-      EditorMode (HZipper (z ==> x) (Maybe (ModuleHead ()) ': l) r [ModulePragma ()])
-    where
-  type ParentMode (HZipper (z ==> x) (Maybe (ModuleHead ()) ': l) r [ModulePragma ()]) = z
-  type Zipper (HZipper (z ==> x) (Maybe (ModuleHead ()) ': l) r [ModulePragma ()]) = (HZipper (z ==> x) (Maybe (ModuleHead ()) ': l) r [ModulePragma ()])
+data ModuleHeadMode mode = ModuleHeadMode mode
 
-  handleKeyEvent _ (KChar 'q', []) _ = mzero
-  handleKeyEvent _ (KChar 't', []) s =
-    return $ Left $ over zipper (ascend . ascend) s
-  handleKeyEvent _ (KChar 'n', []) s =
-    Left <$>
-      runEditorMode
-        (Proxy :: Proxy (HZipper (z ==> x) l ([ModulePragma ()] ': r) (Maybe (ModuleHead ()))))
-        (over zipper hLeftward s)
-  handleKeyEvent _ e s = do
-    liftIO $ print $ "unknown key event type " ++ show e
-    return $ Right s
-
-  modeOverlay _ = do
-    height <- use (bounds . _2)
-    return $ translateY (height - 1) $ string defAttr "ModulePragmas"
-
-instance (
-      EditorMode z,
-      Zipper z ~ z,
-      Pretty z
-    ) =>
-      EditorMode (z ==> ModuleHead ())
-    where
-  type ParentMode (z ==> ModuleHead ()) = z
-  type Zipper (z ==> ModuleHead ()) = (z ==> ModuleHead ())
+instance (EditorMode mode, Pretty (Zipper mode)) => EditorMode (ModuleHeadMode mode) where
+  type ParentMode (ModuleHeadMode mode) = mode
+  type Zipper (ModuleHeadMode mode) = (Zipper mode ==> ModuleHead ())
 
   handleKeyEvent _ (KChar 'q', []) _ = mzero
   handleKeyEvent _ (KChar 't', []) s =
     return $ Left $ over zipper ascend s
-  handleKeyEvent _ (KChar 'h', []) s =
+  handleKeyEvent mode@(ModuleHeadMode _) (KChar 'h', []) s =
     Right <$>
       runEditorMode
-        (Proxy ::
-          Proxy
-            (HZipper
-              (z ==> ModuleHead () ==> HList _)
-              _
-              _
-              (ModuleName ())))
+        (ModuleNameMode mode)
         (over zipper (hRightward . descendHList . descendLens (_Wrapped' . from h4)) s)
   handleKeyEvent _ e s = do
     liftIO $ print $ "unknown key event type " ++ show e
@@ -241,31 +188,23 @@ instance (
     height <- use (bounds . _2)
     return $ translateY (height - 1) $ string defAttr "Just ModuleHead"
 
-instance (
-      EditorMode z,
-      Zipper z ~ z,
-      Pretty z,
-      Ascend (HZipper (z ==> x) l r (ModuleName ())),
-      BuildsOn (HZipper (z ==> x) l r (ModuleName ())) ~ (z ==> x)
-    ) =>
-      EditorMode (HZipper (z ==> x) l r (ModuleName ()))
-    where
-  type ParentMode (HZipper (z ==> x) l r (ModuleName ())) = z
-  type Zipper (HZipper (z ==> x) l r (ModuleName ())) = (HZipper (z ==> x) l r (ModuleName ()))
+data ModuleNameMode x (l :: [*]) (r :: [*]) mode where
+  ModuleNameMode :: (
+      Ascend (HZipper (Zipper mode ==> x) l r (ModuleName ())),
+      BuildsOn (HZipper (Zipper mode ==> x) l r (ModuleName ())) ~ (Zipper mode ==> x)
+    ) => mode -> ModuleNameMode x l r mode
+
+instance (EditorMode mode, Pretty (Zipper mode)) => EditorMode (ModuleNameMode x l r mode) where
+  type ParentMode (ModuleNameMode x l r mode) = mode
+  type Zipper (ModuleNameMode x l r mode) = (HZipper (Zipper mode ==> x) l r (ModuleName ()))
 
   handleKeyEvent _ (KChar 'q', []) _ = mzero
-  handleKeyEvent _ (KChar 't', []) s =
+  handleKeyEvent (ModuleNameMode _) (KChar 't', []) s =
     return $ Left $ over zipper (ascend . ascend) s
-  handleKeyEvent _ (KChar 'h', []) s =
+  handleKeyEvent mode@(ModuleNameMode _) (KChar 'h', []) s =
     Right <$>
       runEditorMode
-        (Proxy ::
-          Proxy
-            (HZipper
-              (HZipper (z ==> x) l r (ModuleName ()) ==> HList '[(), String])
-              '[()]
-              '[]
-              String))
+        (StringMode mode)
         (over zipper (hRightward . descendHList . descendLens (_Wrapped' . from h2)) s)
   handleKeyEvent _ e s = do
     liftIO $ print $ "unknown key event type " ++ show e
@@ -275,25 +214,23 @@ instance (
     height <- use (bounds . _2)
     return $ translateY (height - 1) $ string defAttr "ModuleName"
 
-instance (
-      EditorMode z,
-      Zipper z ~ z,
-      Pretty z,
-      Ascend (HZipper (z ==> x) l r String),
-      BuildsOn (HZipper (z ==> x) l r String) ~ (z ==> x)
-    ) =>
-      EditorMode (HZipper (z ==> x) l r String)
-    where
-  type ParentMode (HZipper (z ==> x) l r String) = z
-  type Zipper (HZipper (z ==> x) l r String) = (HZipper (z ==> x) l r String)
+data StringMode x l r mode where
+  StringMode :: (
+      Ascend (HZipper (Zipper mode ==> x) l r String),
+      BuildsOn (HZipper (Zipper mode ==> x) l r String) ~ (Zipper mode ==> x)
+    ) => mode -> StringMode x l r mode
+
+instance (EditorMode mode, Pretty (Zipper mode)) => EditorMode (StringMode x l r mode) where
+  type ParentMode (StringMode x l r mode) = mode
+  type Zipper (StringMode x l r mode) = HZipper (Zipper mode ==> x) l r String
 
   handleKeyEvent _ (KChar 'q', []) _ = mzero
-  handleKeyEvent _ (KChar 't', []) s =
+  handleKeyEvent (StringMode _) (KChar 't', []) s =
     return $ Left $ over zipper (ascend . ascend) s
-  handleKeyEvent _ (KChar 'E', []) s =
+  handleKeyEvent mode@(StringMode _) (KChar 'E', []) s =
     Right <$>
       runEditorMode
-        (Proxy :: Proxy (HZipper (z ==> x) l r String =%=> Char))
+        (CharMode mode)
         (over zipper descendUList s)
   handleKeyEvent _ e s = do
     liftIO $ print $ "unknown key event type " ++ show e
@@ -303,15 +240,11 @@ instance (
     height <- use (bounds . _2)
     return $ translateY (height - 1) $ string defAttr "String"
 
-instance (
-      EditorMode z,
-      Zipper z ~ z,
-      Pretty z
-    ) =>
-      EditorMode (z =%=> Char)
-    where
-  type ParentMode (z =%=> Char) = z
-  type Zipper (z =%=> Char) = (z =%=> Char)
+data CharMode mode = CharMode mode
+
+instance (EditorMode mode) => EditorMode (CharMode mode) where
+  type ParentMode (CharMode mode) = mode
+  type Zipper (CharMode mode) = (Zipper mode =%=> Char)
 
   handleKeyEvent _ (KChar 'q', [MCtrl]) _ = mzero
   handleKeyEvent _ (KChar 't', [MCtrl]) s =
@@ -330,7 +263,7 @@ instance (
 
 type InEditorMode z m = (MMonad m, EditorMode z, MonadState (State (Zipper z)) m)
 
-nextKeyEvent :: (Pretty (Zipper z), InEditorMode z m) => Proxy z -> m (Key, [Modifier])
+nextKeyEvent :: (Pretty (Zipper z), InEditorMode z m) => z -> m (Key, [Modifier])
 nextKeyEvent proxy = do
   vty <- ask
   e <- liftIO $ nextEvent vty
@@ -345,7 +278,7 @@ nextKeyEvent proxy = do
       liftIO $ print ("unknown event type " ++ show e)
       nextKeyEvent proxy
 
-generatePicture :: (Pretty (Zipper z), InEditorMode z m) => Proxy z -> m Picture
+generatePicture :: (Pretty (Zipper z), InEditorMode z m) => z -> m Picture
 generatePicture proxy = do
   height <- use (bounds . _2)
   z <- use zipper
@@ -356,11 +289,11 @@ generatePicture proxy = do
     Left err ->
       return $ picForImage $ string defAttr err
 
-handleNextKeyEvent :: (Pretty (Zipper z), MMonad m, EditorMode z, EditorMode (ParentMode z)) => Proxy z -> State (Zipper z) -> m (Either (ParentState z) (State (Zipper z)))
+handleNextKeyEvent :: (Pretty (Zipper z), MMonad m, EditorMode z, EditorMode (ParentMode z)) => z -> State (Zipper z) -> m (Either (ParentState z) (State (Zipper z)))
 handleNextKeyEvent proxy state =
   flip runStateT state (nextKeyEvent proxy) >>= uncurry (handleKeyEvent proxy)
 
-runEditorMode :: (Pretty (Zipper z), MMonad m, EditorMode z, EditorMode (ParentMode z)) => Proxy z -> State (Zipper z) -> m (ParentState z)
+runEditorMode :: (Pretty (Zipper z), MMonad m, EditorMode z, EditorMode (ParentMode z)) => z -> State (Zipper z) -> m (ParentState z)
 runEditorMode proxy state = do
   vty <- ask
   state' <-
@@ -375,7 +308,7 @@ runEditorMode proxy state = do
 
 run :: Vty -> State (Root (Module ())) -> IO ()
 run vty state = do
-  runMaybeT $ flip runReaderT vty $ runEditorMode (Proxy :: Proxy (Root (Module ()))) state
+  runMaybeT $ flip runReaderT vty $ runEditorMode RootMode state
   return ()
 
 loadState :: [String] -> IO ((Int, Int) -> State (Root (Module ())))
