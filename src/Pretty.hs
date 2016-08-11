@@ -93,7 +93,7 @@ instance Pretty (C_Module ()) where
       intersperse newlineTwice $
         map (sequence_ . intersperse newline) $
           filter (not . null) $
-            [map pretty (maybeToList head), map pretty pragmas, map pretty imports, map pretty decls]
+            [map pretty pragmas, map pretty (maybeToList head), map pretty imports, map pretty decls]
 
 instance Pretty (ModuleHead ()) where
   pretty (ModuleHead _ name Nothing Nothing) = do
