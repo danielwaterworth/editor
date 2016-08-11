@@ -68,15 +68,22 @@ type MMonad m = (
     MonadReader Vty m
   )
 
-type ParentState mode = State (ParentMode mode)
+type ParentState mode = State (Zipper (ParentMode mode))
 
 class EditorMode mode where
   type ParentMode mode
   type Zipper mode
 
-  handleKeyEvent :: MMonad m => Proxy mode -> (Key, [Modifier]) -> State (Zipper mode) -> m (Either (ParentState mode) (State (Zipper mode)))
+  handleKeyEvent :: (EditorMode (ParentMode mode), MMonad m) => Proxy mode -> (Key, [Modifier]) -> State (Zipper mode) -> m (Either (ParentState mode) (State (Zipper mode)))
 
   modeOverlay :: (MMonad m, MonadState (State (Zipper mode)) m) => Proxy mode -> m Image
+
+instance EditorMode Void where
+  type ParentMode Void = Void
+  type Zipper Void = Void
+
+  handleKeyEvent = undefined
+  modeOverlay = undefined
 
 instance EditorMode (Root (Module ())) where
   type ParentMode (Root (Module ())) = Void
@@ -99,7 +106,7 @@ instance EditorMode (Root (Module ())) where
     height <- use (bounds . _2)
     return $ translateY (height - 1) $ string defAttr "Module"
 
-instance Pretty z => EditorMode (z ==> C_Module ()) where
+instance (EditorMode z, Zipper z ~ z, Pretty z) => EditorMode (z ==> C_Module ()) where
   type ParentMode (z ==> C_Module ()) = z
   type Zipper (z ==> C_Module ()) = z ==> C_Module ()
 
@@ -126,6 +133,8 @@ instance Pretty z => EditorMode (z ==> C_Module ()) where
     return $ translateY (height - 1) $ string defAttr "Haskell Module"
 
 instance (
+      EditorMode z,
+      Zipper z ~ z,
       Pretty z,
       Ascend (HZipper (z ==> x) l ([ModulePragma ()] ': r) (Maybe (ModuleHead ()))),
       Ascend (HZipper (z ==> x) (Maybe (ModuleHead ()) ': l) r [ModulePragma ()]),
@@ -171,6 +180,8 @@ instance (
     return $ translateY (height - 1) $ string defAttr "ModuleHead"
 
 instance (
+      EditorMode z,
+      Zipper z ~ z,
       Pretty z,
       Ascend (HZipper (z ==> x) l ([ModulePragma ()] ': r) (Maybe (ModuleHead ()))),
       Ascend (HZipper (z ==> x) (Maybe (ModuleHead ()) ': l) r [ModulePragma ()]),
@@ -198,7 +209,13 @@ instance (
     height <- use (bounds . _2)
     return $ translateY (height - 1) $ string defAttr "ModulePragmas"
 
-instance Pretty z => EditorMode (z ==> ModuleHead ()) where
+instance (
+      EditorMode z,
+      Zipper z ~ z,
+      Pretty z
+    ) =>
+      EditorMode (z ==> ModuleHead ())
+    where
   type ParentMode (z ==> ModuleHead ()) = z
   type Zipper (z ==> ModuleHead ()) = (z ==> ModuleHead ())
 
@@ -225,6 +242,8 @@ instance Pretty z => EditorMode (z ==> ModuleHead ()) where
     return $ translateY (height - 1) $ string defAttr "Just ModuleHead"
 
 instance (
+      EditorMode z,
+      Zipper z ~ z,
       Pretty z,
       Ascend (HZipper (z ==> x) l r (ModuleName ())),
       BuildsOn (HZipper (z ==> x) l r (ModuleName ())) ~ (z ==> x)
@@ -257,6 +276,8 @@ instance (
     return $ translateY (height - 1) $ string defAttr "ModuleName"
 
 instance (
+      EditorMode z,
+      Zipper z ~ z,
       Pretty z,
       Ascend (HZipper (z ==> x) l r String),
       BuildsOn (HZipper (z ==> x) l r String) ~ (z ==> x)
@@ -282,7 +303,13 @@ instance (
     height <- use (bounds . _2)
     return $ translateY (height - 1) $ string defAttr "String"
 
-instance Pretty z => EditorMode (z =%=> Char) where
+instance (
+      EditorMode z,
+      Zipper z ~ z,
+      Pretty z
+    ) =>
+      EditorMode (z =%=> Char)
+    where
   type ParentMode (z =%=> Char) = z
   type Zipper (z =%=> Char) = (z =%=> Char)
 
@@ -329,11 +356,11 @@ generatePicture proxy = do
     Left err ->
       return $ picForImage $ string defAttr err
 
-handleNextKeyEvent :: (Pretty (Zipper z), MMonad m, EditorMode z) => Proxy z -> State (Zipper z) -> m (Either (ParentState z) (State (Zipper z)))
+handleNextKeyEvent :: (Pretty (Zipper z), MMonad m, EditorMode z, EditorMode (ParentMode z)) => Proxy z -> State (Zipper z) -> m (Either (ParentState z) (State (Zipper z)))
 handleNextKeyEvent proxy state =
   flip runStateT state (nextKeyEvent proxy) >>= uncurry (handleKeyEvent proxy)
 
-runEditorMode :: (Pretty (Zipper z), MMonad m, EditorMode z) => Proxy z -> State (Zipper z) -> m (ParentState z)
+runEditorMode :: (Pretty (Zipper z), MMonad m, EditorMode z, EditorMode (ParentMode z)) => Proxy z -> State (Zipper z) -> m (ParentState z)
 runEditorMode proxy state = do
   vty <- ask
   state' <-
