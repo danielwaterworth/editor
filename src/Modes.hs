@@ -122,7 +122,7 @@ instance (EditorMode mode, Pretty (Zipper mode)) => EditorMode (HaskellModuleMod
     Right <$>
       runEditorMode
         (MaybeModuleHeadMode mode)
-        (over zipper (hRightward . descendHList . descendLens (_Wrapped . from h5)) s)
+        (over zipper (hRightward . descendHList . descendLens (_Wrapped . h5)) s)
   handleKeyEvent _ e s = do
     liftIO $ print $ "unknown key event type " ++ show e
     return $ Right s
@@ -131,11 +131,7 @@ instance (EditorMode mode, Pretty (Zipper mode)) => EditorMode (HaskellModuleMod
     height <- use (bounds . _2)
     return $ translateY (height - 1) $ string defAttr "Haskell Module"
 
-data MaybeModuleHeadMode x (l :: [*]) (r :: [*]) mode where
-  MaybeModuleHeadMode :: (
-      Ascend (HZipper (Zipper mode ==> x) l r (Maybe (ModuleHead ()))),
-      BuildsOn (HZipper (Zipper mode ==> x) l r (Maybe (ModuleHead ()))) ~ (Zipper mode ==> x)
-    ) => mode -> MaybeModuleHeadMode x l r mode
+data MaybeModuleHeadMode x (l :: [*]) (r :: [*]) mode = MaybeModuleHeadMode mode
 
 instance (EditorMode mode, Pretty (Zipper mode)) => EditorMode (MaybeModuleHeadMode x l r mode) where
   type ParentMode (MaybeModuleHeadMode x l r mode) = mode
@@ -179,7 +175,7 @@ instance (EditorMode mode, Pretty (Zipper mode)) => EditorMode (ModuleHeadMode m
     Right <$>
       runEditorMode
         (ModuleNameMode mode)
-        (over zipper (hRightward . descendHList . descendLens (_Wrapped' . from h4)) s)
+        (over zipper (hRightward . descendHList . descendLens (_Wrapped' . h4)) s)
   handleKeyEvent _ e s = do
     liftIO $ print $ "unknown key event type " ++ show e
     return $ Right s
@@ -188,11 +184,7 @@ instance (EditorMode mode, Pretty (Zipper mode)) => EditorMode (ModuleHeadMode m
     height <- use (bounds . _2)
     return $ translateY (height - 1) $ string defAttr "Just ModuleHead"
 
-data ModuleNameMode x (l :: [*]) (r :: [*]) mode where
-  ModuleNameMode :: (
-      Ascend (HZipper (Zipper mode ==> x) l r (ModuleName ())),
-      BuildsOn (HZipper (Zipper mode ==> x) l r (ModuleName ())) ~ (Zipper mode ==> x)
-    ) => mode -> ModuleNameMode x l r mode
+data ModuleNameMode x (l :: [*]) (r :: [*]) mode = ModuleNameMode mode
 
 instance (EditorMode mode, Pretty (Zipper mode)) => EditorMode (ModuleNameMode x l r mode) where
   type ParentMode (ModuleNameMode x l r mode) = mode
@@ -205,7 +197,7 @@ instance (EditorMode mode, Pretty (Zipper mode)) => EditorMode (ModuleNameMode x
     Right <$>
       runEditorMode
         (StringMode mode)
-        (over zipper (hRightward . descendHList . descendLens (_Wrapped' . from h2)) s)
+        (over zipper (hRightward . descendHList . descendLens (_Wrapped' . h2)) s)
   handleKeyEvent _ e s = do
     liftIO $ print $ "unknown key event type " ++ show e
     return $ Right s
@@ -214,11 +206,7 @@ instance (EditorMode mode, Pretty (Zipper mode)) => EditorMode (ModuleNameMode x
     height <- use (bounds . _2)
     return $ translateY (height - 1) $ string defAttr "ModuleName"
 
-data StringMode x l r mode where
-  StringMode :: (
-      Ascend (HZipper (Zipper mode ==> x) l r String),
-      BuildsOn (HZipper (Zipper mode ==> x) l r String) ~ (Zipper mode ==> x)
-    ) => mode -> StringMode x l r mode
+data StringMode x (l :: [*]) (r :: [*]) mode = StringMode mode
 
 instance (EditorMode mode, Pretty (Zipper mode)) => EditorMode (StringMode x l r mode) where
   type ParentMode (StringMode x l r mode) = mode
